@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-bcrypt
-PyJWT
-python-multipart
-requests

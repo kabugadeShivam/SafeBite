@@ -1,0 +1,111 @@
+import { useEffect, useState } from "react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { api } from "./api";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Alerts from "./pages/Alerts";
+import AlertDetails from "./pages/AlertDetails";
+import Investigations from "./pages/Investigations";
+import InvestigationDetails from "./pages/InvestigationDetails";
+import Establishments from "./pages/Establishments";
+import Reports from "./pages/Reports";
+
+function ProtectedLayout() {
+  const [me, setMe] = useState(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    api.me().then(setMe).catch(() => {
+      localStorage.removeItem("safebite_token");
+      localStorage.removeItem("safebite_officer");
+      navigate("/login", { replace: true });
+    });
+  }, [navigate]);
+
+  if (!localStorage.getItem("safebite_token")) return <Navigate to="/login" replace />;
+  if (!me) return <div className="loading-screen">Loading SafeBite…</div>;
+
+  const logout = () => {
+    localStorage.removeItem("safebite_token");
+    localStorage.removeItem("safebite_officer");
+    navigate("/login", { replace: true });
+  };
+
+  const nav = (path, label) => (
+    <Link
+      className={location.pathname === path || location.pathname.startsWith(`${path}/`) ? "nav-item active" : "nav-item"}
+      to={path}
+    >
+      {label}
+    </Link>
+  );
+
+  const initials = me.name.split(" ").map(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">SB</div>
+          <div><strong>SafeBite</strong><span>Government Portal</span></div>
+        </div>
+
+        <div className="region-card">
+          <small>AUTHORISED JURISDICTION</small>
+          <strong>{me.role === "CENTRAL_ADMIN" ? "National / Central" : me.region}</strong>
+          <span>{me.state}</span>
+        </div>
+
+        <nav>
+          {nav("/", "Overview")}
+          {nav("/alerts", "Alerts")}
+          {nav("/investigations", "Investigations")}
+          {nav("/establishments", "Establishments")}
+          {nav("/reports", "Reports")}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className="officer-mini">
+            <div className="avatar">{initials || "OF"}</div>
+            <div><strong>{me.name}</strong><span>{me.role.replaceAll("_", " ")}</span></div>
+          </div>
+          <button className="secondary-button full" onClick={logout}>Sign out</button>
+        </div>
+      </aside>
+
+      <main className="content">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">FOOD SAFETY SURVEILLANCE</div>
+            <h1>{me.role === "CENTRAL_ADMIN" ? "Central Monitoring" : `${me.region} Monitoring`}</h1>
+          </div>
+          <div className="officer-pill">
+            <div className="avatar">{initials || "OF"}</div>
+            <div><strong>{me.name}</strong><span>{me.role.replaceAll("_", " ")}</span></div>
+          </div>
+        </header>
+
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/alerts" element={<Alerts />} />
+          <Route path="/alerts/:id" element={<AlertDetails />} />
+          <Route path="/investigations" element={<Investigations />} />
+          <Route path="/investigations/:id" element={<InvestigationDetails />} />
+          <Route path="/establishments" element={<Establishments />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/*" element={<ProtectedLayout />} />
+    </Routes>
+  );
+}

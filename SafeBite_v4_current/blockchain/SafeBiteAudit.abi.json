@@ -1,0 +1,33 @@
+[
+  {
+    "inputs": [
+      {"internalType": "bytes32", "name": "recordHash", "type": "bytes32"},
+      {"internalType": "string", "name": "entityType", "type": "string"},
+      {"internalType": "uint256", "name": "entityId", "type": "uint256"}
+    ],
+    "name": "recordAudit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "uint256", "name": "index", "type": "uint256"}],
+    "name": "getRecord",
+    "outputs": [
+      {"internalType": "bytes32", "name": "recordHash", "type": "bytes32"},
+      {"internalType": "string", "name": "entityType", "type": "string"},
+      {"internalType": "uint256", "name": "entityId", "type": "uint256"},
+      {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+      {"internalType": "address", "name": "submittedBy", "type": "address"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalRecords",
+    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

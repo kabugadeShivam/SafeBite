@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 9
+names: ['apron', 'cockroach', 'gloves', 'hairnet', 'lizard', 'no_apron', 'no_gloves', 'no_hairnet', 'rat']
+
+roboflow:
+  workspace: shivam-kabugade
+  project: kitchenhygiene-lr6nt
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/shivam-kabugade/kitchenhygiene-lr6nt/dataset/2

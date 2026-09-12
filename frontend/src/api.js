@@ -356,6 +356,92 @@ export const api = {
 
 
   /* ========================================================
+     MONTHLY AI AUDIT
+     ======================================================== */
+
+  monthlyNotices: (
+    auditMonth = "",
+    noticeType = ""
+  ) => {
+    const params = new URLSearchParams();
+
+    if (auditMonth) {
+      params.set(
+        "audit_month",
+        auditMonth
+      );
+    }
+
+    if (noticeType) {
+      params.set(
+        "notice_type",
+        noticeType
+      );
+    }
+
+    const query =
+      params.toString();
+
+    return request(
+      `/government/monthly-notices${
+        query
+          ? `?${query}`
+          : ""
+      }`
+    );
+  },
+
+  generateMonthlyNotices: (
+    auditMonth
+  ) =>
+    request(
+      `/government/monthly-notices/generate?audit_month=${encodeURIComponent(
+        auditMonth
+      )}`,
+      {
+        method: "POST",
+      }
+    ),
+
+  monthlyNotice: (
+    id
+  ) =>
+    request(
+      `/government/monthly-notices/${id}`
+    ),
+
+
+  /* ========================================================
+     OUTLET OFFICIAL CONTACT
+     ========================================================
+
+     The notification service uses this single contact record
+     as the destination for monthly email/SMS notices.
+     ======================================================== */
+
+  outletContact: (
+    restaurantId
+  ) =>
+    request(
+      `/government/outlet-contacts/${restaurantId}`
+    ),
+
+  saveOutletContact: (
+    restaurantId,
+    payload
+  ) =>
+    request(
+      `/government/outlet-contacts/${restaurantId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(
+          payload
+        ),
+      }
+    ),
+
+
+  /* ========================================================
      PUBLIC OUTLET
      ======================================================== */
 

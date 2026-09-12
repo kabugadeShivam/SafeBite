@@ -63,60 +63,31 @@ def _fallback_comment(current: dict[str, Any]) -> str:
     return f"Monthly food-safety performance is {trend}."
 
 
-def _month_key(value: str) -> tuple[int, int] | None:
-    try:
-        year, month = value.split("-", 1)
-        return int(year), int(month)
-    except (AttributeError, ValueError):
-        return None
-
-
-def _is_previous_month(current: str, previous: str) -> bool:
-    current_key = _month_key(current)
-    previous_key = _month_key(previous)
-
-    if not current_key or not previous_key:
-        return False
-
-    year, month = current_key
-    expected = (year - 1, 12) if month == 1 else (year, month - 1)
-    return previous_key == expected
-
-
 def _persistent_failure(
-    current_month: str,
     history: list[dict[str, Any]],
     current_score: float,
 ) -> bool:
-    """Require consecutive monthly failures, not merely three old records."""
-    consecutive = 1 if current_score <= PERSISTENT_SCORE_THRESHOLD else 0
-
-    if consecutive == 0:
-        return False
-
-    expected_month = current_month
+    """Count consecutive low monthly assessments from newest to oldest."""
+    scores = [current_score]
 
     for item in history:
-        month = str(item.get("audit_month") or "")
-
-        if not _is_previous_month(expected_month, month):
-            break
-
         try:
-            score = float(item.get("score", 100))
+            scores.append(float(item.get("score", 100)))
         except (TypeError, ValueError):
-            break
+            continue
 
+    consecutive = 0
+
+    for score in scores:
         if score > PERSISTENT_SCORE_THRESHOLD:
             break
 
         consecutive += 1
-        expected_month = month
 
         if consecutive >= PERSISTENT_MONTHS:
             return True
 
-    return consecutive >= PERSISTENT_MONTHS
+    return False
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -172,8 +143,8 @@ Rules:
 4. Keep the AI score within 15 points of that baseline.
 5. Public status must be exactly one of: EXCELLENT, GOOD, WATCH, POOR, CRITICAL.
 6. Comment must be one short citizen-friendly sentence.
-7. Persistent failure is determined by repeated monthly scores at or below the configured threshold.
-8. Licence review is a government decision; the AI may only recommend that a physical review is required.
+7. Persistent failure means repeated low monthly assessments; SafeBite will enforce the persistence rule.
+8. Licence review is a government decision; only recommend a physical review.
 
 CURRENT OFFICIAL AUDIT:
 {json.dumps(payload.get('current'), ensure_ascii=False, default=str)}
@@ -242,7 +213,7 @@ def analyze_monthly_performance(
     base_score = float(
         current.get("compliance_score", 0)
     )
-    target_month = audit_month or date.today().strftime("%Y-%m")
+    _ = audit_month or date.today().strftime("%Y-%m")
 
     payload = {
         "current": current,
@@ -281,13 +252,12 @@ def analyze_monthly_performance(
     status = public_status_from_score(score)
 
     persistent_failure = _persistent_failure(
-        target_month,
         history,
         score,
     )
 
-    # Persistence is deterministic so a model response cannot suppress
-    # an alert after repeated official monthly failures.
+    # Persistence is deterministic. The AI supplies the score/comment,
+    # while repeated official failures trigger the licence-review alert.
     licence_review_recommended = persistent_failure
 
     return {

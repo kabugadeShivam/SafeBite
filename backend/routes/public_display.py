@@ -10,7 +10,10 @@ from ..models import (
     Restaurant,
 )
 from ..models_monthly import MonthlyAIAnalysis
-from ..services.regional_auditor import audit_region
+from ..services.monthly_ai_analyzer import public_status_from_score
+from ..services.regional_auditor_intelligence import (
+    audit_region_with_citizen_intelligence,
+)
 
 
 router = APIRouter(
@@ -19,22 +22,7 @@ router = APIRouter(
 )
 
 
-PUBLIC_STATUS_MAP = {
-    "EXCELLENT": "EXCELLENT",
-    "COMPLIANT": "GOOD",
-    "WATCHLIST": "WATCH",
-    "WARNING": "POOR",
-    "CRITICAL": "CRITICAL",
-}
-
-
-# ============================================================
-# PUBLIC OUTLET STATUS
-# ============================================================
-
-@router.get(
-    "/outlets/{registration_id}"
-)
+@router.get("/outlets/{registration_id}")
 def public_outlet_status(
     registration_id: str,
     db: Session = Depends(get_db),
@@ -42,8 +30,7 @@ def public_outlet_status(
     outlet = (
         db.query(Restaurant)
         .filter(
-            Restaurant.registration_id
-            == registration_id
+            Restaurant.registration_id == registration_id
         )
         .first()
     )
@@ -54,11 +41,9 @@ def public_outlet_status(
             detail="Outlet not found",
         )
 
-    # --------------------------------------------------------
-    # Deterministic official audit remains the fallback.
-    # --------------------------------------------------------
-
-    audit = audit_region(
+    # Use the same verified citizen-aware audit source that feeds
+    # the monthly assessment. This keeps government and public views aligned.
+    audit = audit_region_with_citizen_intelligence(
         db=db,
         state=outlet.state,
         region=outlet.region,
@@ -68,8 +53,11 @@ def public_outlet_status(
     outlet_audit = next(
         (
             item
-            for item in audit["inspection_priority_queue"]
-            if item["outlet"]["id"] == outlet.id
+            for item in audit.get(
+                "inspection_priority_queue",
+                [],
+            )
+            if item.get("outlet", {}).get("id") == outlet.id
         ),
         None,
     )
@@ -81,13 +69,8 @@ def public_outlet_status(
         )
 
     # --------------------------------------------------------
-    # Latest monthly AI assessment.
-    #
-    # This is the public-facing cleanliness/performance result.
-    # The AI result is advisory and derived from official audit
-    # evidence; it never becomes the legal authority.
+    # Latest stored monthly AI assessment
     # --------------------------------------------------------
-
     monthly_ai = (
         db.query(MonthlyAIAnalysis)
         .filter(
@@ -100,30 +83,38 @@ def public_outlet_status(
         .first()
     )
 
-    public_score = outlet_audit["compliance_score"]
-    public_status = PUBLIC_STATUS_MAP.get(
-        str(outlet_audit["status"]).upper(),
-        "WATCH",
-    )
-    public_comment = (
-        "Monthly food-safety performance is being monitored."
-    )
-    public_audit_month = None
-    public_ai_model = None
-    public_assessment_at = None
-
     if monthly_ai:
-        public_score = monthly_ai.score
+        public_score = float(monthly_ai.score)
         public_status = monthly_ai.public_status
         public_comment = monthly_ai.ai_comment
         public_audit_month = monthly_ai.audit_month
         public_ai_model = monthly_ai.ai_model
         public_assessment_at = monthly_ai.created_at
+        licence_review_recommended = bool(
+            monthly_ai.licence_review_recommended
+        )
+    else:
+        # Before the first monthly run, show the deterministic audit score.
+        public_score = float(
+            outlet_audit.get("compliance_score", 0)
+        )
+        public_status = public_status_from_score(
+            public_score
+        )
+        concerns = outlet_audit.get("concerns") or []
+        public_comment = (
+            " ".join(str(concerns[0]).split())
+            if concerns
+            else "Monthly food-safety assessment is pending."
+        )
+        public_audit_month = None
+        public_ai_model = "DETERMINISTIC_FALLBACK"
+        public_assessment_at = audit.get("generated_at")
+        licence_review_recommended = False
 
-    # ========================================================
-    # LATEST VERIFIED INVESTIGATION
-    # ========================================================
-
+    # --------------------------------------------------------
+    # Latest verified investigation outcome
+    # --------------------------------------------------------
     verified_investigation = (
         db.query(Investigation)
         .join(
@@ -145,29 +136,19 @@ def public_outlet_status(
 
     if verified_investigation:
         latest_verified_outcome = {
-            "investigation_id":
-                verified_investigation.id,
-            "alert_id":
-                verified_investigation.alert_id,
-            "decision":
-                "VERIFIED",
-            "status":
-                verified_investigation.status,
-            "verified_at":
-                verified_investigation.verified_at,
-            "corrective_action":
+            "investigation_id": verified_investigation.id,
+            "alert_id": verified_investigation.alert_id,
+            "decision": "VERIFIED",
+            "status": verified_investigation.status,
+            "verified_at": verified_investigation.verified_at,
+            "corrective_action": (
                 verified_investigation.corrective_action
-                or None,
+                or None
+            ),
         }
 
-    # ========================================================
-    # PUBLIC RESPONSE
-    # ========================================================
-
     return {
-        "source":
-            "SafeBite Government Platform",
-
+        "source": "SafeBite Government Platform",
         "outlet": {
             "name": outlet.name,
             "registration_id": outlet.registration_id,
@@ -175,43 +156,46 @@ def public_outlet_status(
             "state": outlet.state,
             "region": outlet.region,
         },
-
         "official_status": {
-            # Citizen-friendly monthly AI score.
             "compliance_score": public_score,
             "status": public_status,
             "public_comment": public_comment,
             "audit_month": public_audit_month,
             "ai_model": public_ai_model,
             "assessment_at": public_assessment_at,
-
-            # Internal government monitoring signals remain
-            # available only as the non-public operational layer.
-            "inspection_priority":
-                outlet_audit["inspection_priority"],
-            "risk_trend":
-                outlet_audit["risk_trend"],
-            "generated_at":
-                audit["generated_at"],
-            "latest_verified_outcome":
-                latest_verified_outcome,
+            "licence_review_recommended": licence_review_recommended,
+            "inspection_priority": outlet_audit.get(
+                "inspection_priority"
+            ),
+            "risk_trend": outlet_audit.get("risk_trend"),
+            "generated_at": audit.get("generated_at"),
+            "latest_verified_outcome": latest_verified_outcome,
         },
-
         "public_summary": {
-            "strengths":
-                outlet_audit["strengths"],
-            "concerns":
-                outlet_audit["concerns"],
-            "recommendation":
-                outlet_audit["recommendation"],
+            "strengths": outlet_audit.get("strengths", []),
+            "concerns": outlet_audit.get("concerns", []),
+            "recommendation": outlet_audit.get(
+                "recommendation",
+                "Continue monitoring official food-safety status.",
+            ),
         },
-
-        "latest_verified_outcome":
-            latest_verified_outcome,
-
+        "latest_monthly_assessment": (
+            {
+                "audit_month": monthly_ai.audit_month,
+                "score": monthly_ai.score,
+                "status": monthly_ai.public_status,
+                "comment": monthly_ai.ai_comment,
+                "ai_model": monthly_ai.ai_model,
+                "licence_review_recommended": bool(
+                    monthly_ai.licence_review_recommended
+                ),
+            }
+            if monthly_ai
+            else None
+        ),
+        "latest_verified_outcome": latest_verified_outcome,
         "display_control": {
-            "controlled_by":
-                "Government SafeBite Platform",
+            "controlled_by": "Government SafeBite Platform",
             "owner_can_edit": False,
             "ai_is_final_authority": False,
         },

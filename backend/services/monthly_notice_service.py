@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -139,45 +139,22 @@ def _compact_current_audit(
     }
 
 
-def _month_bounds(
-    audit_month: str,
-) -> tuple[datetime, datetime]:
-    start = datetime.strptime(
-        audit_month,
-        "%Y-%m",
-    )
-
-    if start.month == 12:
-        end = datetime(
-            start.year + 1,
-            1,
-            1,
-        )
-    else:
-        end = datetime(
-            start.year,
-            start.month + 1,
-            1,
-        )
-
-    return start, end
-
-
 def _create_license_review_alert(
     db: Session,
     restaurant_id: int,
     audit_month: str,
     assessment: dict[str, Any],
 ) -> int | None:
-    start, end = _month_bounds(audit_month)
+    marker = (
+        f"Audit month: {audit_month}."
+    )
 
     existing = (
         db.query(Alert)
         .filter(
             Alert.restaurant_id == restaurant_id,
             Alert.alert_type == "LICENCE_REVIEW_RECOMMENDED",
-            Alert.timestamp >= start,
-            Alert.timestamp < end,
+            Alert.reason.contains(marker),
         )
         .first()
     )
@@ -196,6 +173,7 @@ def _create_license_review_alert(
         risk_score=100.0,
         reason=(
             f"{history_message} "
+            f"Audit month: {audit_month}. "
             f"Current public score: {assessment['score']:.0f}/100. "
             f"Assessment: {assessment['comment']}"
         ),

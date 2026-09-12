@@ -30,6 +30,10 @@ from .routes.monthly_notices import (
     router as monthly_notices_router
 )
 
+from .routes.outlet_contacts import (
+    router as outlet_contacts_router
+)
+
 from .services.monthly_scheduler import (
     start_monthly_scheduler,
 )
@@ -54,8 +58,8 @@ app = FastAPI(
         "IoT + AI food-safety monitoring with "
         "regional government alerts, auditable "
         "investigations, citizen evidence, automated "
-        "monthly AI assessments, outlet notices, and "
-        "blockchain-backed audit records."
+        "monthly AI assessments, outlet notices, "
+        "and blockchain-backed audit records."
     ),
     version="3.0.0",
 )
@@ -160,6 +164,14 @@ app.include_router(
 
 app.include_router(
     monthly_notices_router
+)
+
+# ------------------------------------------------------------
+# Outlet official contacts
+# ------------------------------------------------------------
+
+app.include_router(
+    outlet_contacts_router
 )
 
 

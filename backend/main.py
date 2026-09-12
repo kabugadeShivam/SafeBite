@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
+from . import models_monthly  # noqa: F401
 
 from .routes.devices import router as devices_router
 from .routes.government import router as government_router
@@ -29,6 +30,10 @@ from .routes.monthly_notices import (
     router as monthly_notices_router
 )
 
+from .services.monthly_scheduler import (
+    start_monthly_scheduler,
+)
+
 
 # ============================================================
 # DATABASE INITIALIZATION
@@ -48,8 +53,9 @@ app = FastAPI(
     description=(
         "IoT + AI food-safety monitoring with "
         "regional government alerts, auditable "
-        "investigations, citizen evidence, monthly "
-        "audit notices, and blockchain-backed audit records."
+        "investigations, citizen evidence, automated "
+        "monthly AI assessments, outlet notices, and "
+        "blockchain-backed audit records."
     ),
     version="3.0.0",
 )
@@ -149,12 +155,21 @@ app.include_router(
 )
 
 # ------------------------------------------------------------
-# Monthly audit notices
+# Monthly AI audit notices
 # ------------------------------------------------------------
 
 app.include_router(
     monthly_notices_router
 )
+
+
+# ============================================================
+# START AUTOMATED MONTHLY AUDIT SCHEDULER
+# ============================================================
+
+@app.on_event("startup")
+def start_background_services():
+    start_monthly_scheduler()
 
 
 # ============================================================

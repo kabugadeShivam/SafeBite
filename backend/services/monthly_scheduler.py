@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 from ..database import SessionLocal
+from ..models import Restaurant
 from ..models_monthly import MonthlyAIAnalysis
 from .monthly_notice_service import generate_monthly_notices
 
@@ -24,13 +25,28 @@ def _previous_month(value: datetime) -> str:
 def _should_run(target_month: str) -> bool:
     db = SessionLocal()
     try:
-        return (
+        outlet_count = (
+            db.query(Restaurant)
+            .filter(Restaurant.status == "ACTIVE")
+            .count()
+        )
+
+        analyzed_count = (
             db.query(MonthlyAIAnalysis)
             .filter(
                 MonthlyAIAnalysis.audit_month == target_month
             )
-            .first()
-            is None
+            .join(
+                Restaurant,
+                MonthlyAIAnalysis.restaurant_id
+                == Restaurant.id,
+            )
+            .count()
+        )
+
+        return (
+            outlet_count == 0
+            or analyzed_count < outlet_count
         )
     finally:
         db.close()
@@ -47,7 +63,7 @@ def _run_for_month(target_month: str) -> None:
             actor_id=None,
         )
     except Exception:
-        # A failed monthly run must not stop the API process.
+        # A failed monthly run must never stop the API process.
         db.rollback()
     finally:
         db.close()
@@ -80,17 +96,41 @@ def _scheduler_loop() -> None:
         ),
     )
 
+    catch_up_days = max(
+        1,
+        min(
+            7,
+            int(
+                os.getenv(
+                    "SAFE_BITE_MONTHLY_CATCH_UP_DAYS",
+                    "7",
+                )
+            ),
+        ),
+    )
+
+    last_attempted_month = None
+
     while True:
         now = datetime.utcnow()
+        target_month = _previous_month(now)
+
+        run_window = (
+            now.day >= run_day
+            and now.day <= min(
+                28,
+                run_day + catch_up_days - 1,
+            )
+            and now.hour >= run_hour
+        )
 
         if (
-            now.day == run_day
-            and now.hour == run_hour
-            and _should_run(_previous_month(now))
+            run_window
+            and target_month != last_attempted_month
+            and _should_run(target_month)
         ):
-            _run_for_month(
-                _previous_month(now)
-            )
+            _run_for_month(target_month)
+            last_attempted_month = target_month
 
         time.sleep(60)
 

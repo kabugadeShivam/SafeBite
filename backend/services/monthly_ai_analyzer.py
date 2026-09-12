@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import date
 from typing import Any
 
 import requests
@@ -16,10 +17,14 @@ PUBLIC_STATUS_THRESHOLDS = (
     (0, "CRITICAL"),
 )
 
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 AI_SCORE_GUARDRAIL = 15.0
-PERSISTENT_MONTHS = 3
-PERSISTENT_SCORE_THRESHOLD = 60.0
+PERSISTENT_MONTHS = int(
+    os.getenv("SAFEBITE_PERSISTENT_MONTHS", "3")
+)
+PERSISTENT_SCORE_THRESHOLD = float(
+    os.getenv("SAFEBITE_PERSISTENT_SCORE_THRESHOLD", "60")
+)
 
 
 class MonthlyAIError(RuntimeError):
@@ -45,14 +50,11 @@ def _clean_comment(value: Any) -> str:
     return comment[:180]
 
 
-def _fallback_comment(
-    current: dict[str, Any],
-) -> str:
+def _fallback_comment(current: dict[str, Any]) -> str:
     concerns = current.get("concerns") or []
 
     if concerns:
-        first = " ".join(str(concerns[0]).split())
-        return first[:180]
+        return " ".join(str(concerns[0]).split())[:180]
 
     trend = str(
         current.get("risk_trend") or "STABLE"
@@ -61,25 +63,58 @@ def _fallback_comment(
     return f"Monthly food-safety performance is {trend}."
 
 
+def _month_key(value: str) -> tuple[int, int] | None:
+    try:
+        year, month = value.split("-", 1)
+        return int(year), int(month)
+    except (AttributeError, ValueError):
+        return None
+
+
+def _is_previous_month(current: str, previous: str) -> bool:
+    current_key = _month_key(current)
+    previous_key = _month_key(previous)
+
+    if not current_key or not previous_key:
+        return False
+
+    year, month = current_key
+    expected = (year - 1, 12) if month == 1 else (year, month - 1)
+    return previous_key == expected
+
+
 def _persistent_failure(
+    current_month: str,
     history: list[dict[str, Any]],
     current_score: float,
 ) -> bool:
-    scores = [float(current_score)]
+    """Require consecutive monthly failures, not merely three old records."""
+    consecutive = 1 if current_score <= PERSISTENT_SCORE_THRESHOLD else 0
+
+    if consecutive == 0:
+        return False
+
+    expected_month = current_month
 
     for item in history:
-        try:
-            scores.append(float(item.get("score", 100)))
-        except (TypeError, ValueError):
-            continue
+        month = str(item.get("audit_month") or "")
 
-    consecutive = 0
-
-    for score in scores:
-        if score <= PERSISTENT_SCORE_THRESHOLD:
-            consecutive += 1
-        else:
+        if not _is_previous_month(expected_month, month):
             break
+
+        try:
+            score = float(item.get("score", 100))
+        except (TypeError, ValueError):
+            break
+
+        if score > PERSISTENT_SCORE_THRESHOLD:
+            break
+
+        consecutive += 1
+        expected_month = month
+
+        if consecutive >= PERSISTENT_MONTHS:
+            return True
 
     return consecutive >= PERSISTENT_MONTHS
 
@@ -109,9 +144,7 @@ def _extract_json(text: str) -> dict[str, Any]:
     return value
 
 
-def _call_gemini(
-    payload: dict[str, Any],
-) -> dict[str, Any]:
+def _call_gemini(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
     if not api_key:
@@ -130,27 +163,25 @@ def _call_gemini(
     prompt = f"""
 You are the SafeBite Monthly Food-Safety Performance Analyst.
 
-Your job is to analyze official SafeBite monthly audit evidence and
-produce a compact public performance assessment.
+Analyze only the official SafeBite evidence supplied below.
 
 Rules:
-1. Use only the supplied data.
-2. Do not invent incidents, evidence, or legal conclusions.
-3. A citizen report is negative evidence only when its government status is VERIFIED.
-4. The supplied base audit score is an official deterministic baseline.
-5. Your recommended score must stay close to that baseline.
-6. Public status must be one of: EXCELLENT, GOOD, WATCH, POOR, CRITICAL.
-7. Comment must be one short sentence understandable to a citizen.
-8. Licence review may be recommended only when there is a persistent pattern across
-   multiple monthly assessments; the government authority still makes the decision.
+1. Do not invent incidents, evidence, or legal conclusions.
+2. A citizen report is negative evidence only when it is VERIFIED by government.
+3. The base audit score is the official deterministic baseline.
+4. Keep the AI score within 15 points of that baseline.
+5. Public status must be exactly one of: EXCELLENT, GOOD, WATCH, POOR, CRITICAL.
+6. Comment must be one short citizen-friendly sentence.
+7. Persistent failure is determined by repeated monthly scores at or below the configured threshold.
+8. Licence review is a government decision; the AI may only recommend that a physical review is required.
 
-Current official audit:
+CURRENT OFFICIAL AUDIT:
 {json.dumps(payload.get('current'), ensure_ascii=False, default=str)}
 
-Previous monthly assessments:
+PREVIOUS MONTHLY ASSESSMENTS:
 {json.dumps(payload.get('history'), ensure_ascii=False, default=str)}
 
-Return ONLY JSON with exactly these fields:
+Return ONLY JSON:
 {{
   "score": 0,
   "status": "GOOD",
@@ -194,14 +225,10 @@ Return ONLY JSON with exactly these fields:
 
     try:
         data = response.json()
-    except ValueError as exc:
-        raise MonthlyAIError("Gemini response was not JSON") from exc
-
-    try:
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError, TypeError) as exc:
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise MonthlyAIError(
-            "Gemini response did not contain generated text"
+            "Gemini response did not contain usable generated text"
         ) from exc
 
     return _extract_json(text)
@@ -210,10 +237,12 @@ Return ONLY JSON with exactly these fields:
 def analyze_monthly_performance(
     current: dict[str, Any],
     history: list[dict[str, Any]],
+    audit_month: str | None = None,
 ) -> dict[str, Any]:
     base_score = float(
         current.get("compliance_score", 0)
     )
+    target_month = audit_month or date.today().strftime("%Y-%m")
 
     payload = {
         "current": current,
@@ -227,68 +256,48 @@ def analyze_monthly_performance(
         ai_model = os.getenv(
             "GEMINI_MODEL",
             DEFAULT_GEMINI_MODEL,
-        )
+        ).strip() or DEFAULT_GEMINI_MODEL
 
         requested_score = float(
             generated.get("score", base_score)
         )
 
         score = max(
-            0.0,
-            min(
-                100.0,
-                requested_score,
-            ),
-        )
-
-        score = max(
             base_score - AI_SCORE_GUARDRAIL,
             min(
                 base_score + AI_SCORE_GUARDRAIL,
-                score,
+                requested_score,
             ),
         )
-
+        score = max(0.0, min(100.0, score))
         comment = _clean_comment(
             generated.get("comment")
         )
 
-        model_recommendation = bool(
-            generated.get(
-                "licence_review_recommended",
-                False,
-            )
-        )
-
-    except MonthlyAIError:
-        score = base_score
+    except (MonthlyAIError, TypeError, ValueError):
+        score = max(0.0, min(100.0, base_score))
         comment = _fallback_comment(current)
-        model_recommendation = False
 
     status = public_status_from_score(score)
 
     persistent_failure = _persistent_failure(
+        target_month,
         history,
         score,
     )
 
-    licence_review_recommended = bool(
-        persistent_failure
-        and model_recommendation
-    )
-
-    # When the model is unavailable, the deterministic history guardrail
-    # still surfaces a review warning after persistent failure.
-    if ai_model == "RULE_BASED_FALLBACK" and persistent_failure:
-        licence_review_recommended = True
+    # Persistence is deterministic so a model response cannot suppress
+    # an alert after repeated official monthly failures.
+    licence_review_recommended = persistent_failure
 
     return {
         "score": round(score, 1),
         "status": status,
         "comment": comment,
-        "licence_review_recommended":
-            licence_review_recommended,
+        "licence_review_recommended": licence_review_recommended,
         "base_audit_score": round(base_score, 1),
         "ai_model": ai_model,
         "persistent_failure": persistent_failure,
+        "persistent_months": PERSISTENT_MONTHS,
+        "persistent_threshold": PERSISTENT_SCORE_THRESHOLD,
     }

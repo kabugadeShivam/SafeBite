@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..models import Alert, Device, Investigation, Restaurant
+from ..models import (
+    AIDetection,
+    Alert,
+    Device,
+    Investigation,
+    Restaurant,
+)
 
 
 DEFAULT_DAYS = 30
@@ -98,6 +105,206 @@ def _alert_pressure(
 
 
 # ============================================================
+# EXPIRY AI HELPERS
+# ============================================================
+
+def _expiry_status_from_detection(
+    detection: AIDetection,
+) -> str:
+
+    detection_type = str(
+        getattr(
+            detection,
+            "detection_type",
+            "",
+        )
+    ).strip().lower()
+
+    description = str(
+        getattr(
+            detection,
+            "description",
+            "",
+        )
+        or ""
+    )
+
+    # --------------------------------------------------------
+    # Prefer explicit detection type.
+    # --------------------------------------------------------
+
+    if (
+        "expiry" in detection_type
+        and "expired" in detection_type
+    ):
+        return "EXPIRED"
+
+    if (
+        "expiry" in detection_type
+        and (
+            "expires_today" in detection_type
+            or "today" in detection_type
+        )
+    ):
+        return "EXPIRES_TODAY"
+
+    if (
+        "expiry" in detection_type
+        and "valid" in detection_type
+    ):
+        return "VALID"
+
+    # --------------------------------------------------------
+    # If the description contains the original OCR result,
+    # inspect its JSON status.
+    # --------------------------------------------------------
+
+    try:
+
+        parsed = json.loads(
+            description
+        )
+
+        if isinstance(
+            parsed,
+            dict,
+        ):
+
+            status = str(
+                parsed.get(
+                    "status",
+                    "",
+                )
+            ).upper()
+
+            if status in {
+                "EXPIRED",
+                "EXPIRES_TODAY",
+                "VALID",
+            }:
+                return status
+
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        pass
+
+    # --------------------------------------------------------
+    # Final text-based fallback.
+    # --------------------------------------------------------
+
+    combined = (
+        detection_type
+        + " "
+        + description.lower()
+    )
+
+    if (
+        "expires_today" in combined
+        or "expires today" in combined
+    ):
+        return "EXPIRES_TODAY"
+
+    if (
+        "expired" in combined
+    ):
+        return "EXPIRED"
+
+    if (
+        "expiry_valid" in combined
+        or "valid expiry" in combined
+    ):
+        return "VALID"
+
+    return "UNKNOWN"
+
+
+def _expiry_findings(
+    db: Session,
+    restaurant_id: int,
+    cutoff: datetime,
+) -> dict[str, Any]:
+
+    detections = (
+        db.query(AIDetection)
+        .filter(
+            AIDetection.restaurant_id
+            == restaurant_id,
+
+            AIDetection.timestamp
+            >= cutoff,
+        )
+        .all()
+    )
+
+    expired = []
+    expires_today = []
+    valid = []
+    unknown = []
+
+    for detection in detections:
+
+        status = _expiry_status_from_detection(
+            detection
+        )
+
+        if status == "EXPIRED":
+
+            expired.append(
+                detection
+            )
+
+        elif status == "EXPIRES_TODAY":
+
+            expires_today.append(
+                detection
+            )
+
+        elif status == "VALID":
+
+            valid.append(
+                detection
+            )
+
+        elif (
+            "expiry"
+            in str(
+                getattr(
+                    detection,
+                    "detection_type",
+                    "",
+                )
+            ).lower()
+        ):
+
+            unknown.append(
+                detection
+            )
+
+    return {
+        "total_checks":
+            len(expired)
+            + len(expires_today)
+            + len(valid)
+            + len(unknown),
+
+        "expired":
+            len(expired),
+
+        "expires_today":
+            len(expires_today),
+
+        "valid":
+            len(valid),
+
+        "unknown":
+            len(unknown),
+    }
+
+
+# ============================================================
 # OUTLET AUDIT
 # ============================================================
 
@@ -136,6 +343,16 @@ def _build_outlet_audit(
     )
 
     # --------------------------------------------------------
+    # Expiry OCR findings
+    # --------------------------------------------------------
+
+    expiry = _expiry_findings(
+        db=db,
+        restaurant_id=restaurant.id,
+        cutoff=cutoff,
+    )
+
+    # --------------------------------------------------------
     # Basic metrics
     # --------------------------------------------------------
 
@@ -162,19 +379,25 @@ def _build_outlet_audit(
     unresolved_investigations = sum(
         1
         for investigation in investigations
-        if str(investigation.status).upper() != "CLOSED"
+        if str(
+            investigation.status
+        ).upper() != "CLOSED"
     )
 
     completed_investigations = sum(
         1
         for investigation in investigations
-        if str(investigation.status).upper() == "CLOSED"
+        if str(
+            investigation.status
+        ).upper() == "CLOSED"
     )
 
     action_required = sum(
         1
         for investigation in investigations
-        if str(investigation.status).upper()
+        if str(
+            investigation.status
+        ).upper()
         == "ACTION_REQUIRED"
     )
 
@@ -189,7 +412,10 @@ def _build_outlet_audit(
     # --------------------------------------------------------
 
     midpoint = cutoff + timedelta(
-        days=max(1, days // 2)
+        days=max(
+            1,
+            days // 2,
+        )
     )
 
     previous_alerts = [
@@ -219,16 +445,16 @@ def _build_outlet_audit(
 
     # ========================================================
     # COMPLIANCE SCORE
-    #
-    # Measures outlet compliance quality.
-    # Repeated alerts are NOT counted one-for-one.
     # ========================================================
 
     compliance_score = 100.0
 
     compliance_breakdown = []
 
-    # Active critical conditions
+    # --------------------------------------------------------
+    # Active RED alerts
+    # --------------------------------------------------------
+
     red_penalty = min(
         active_red * 6,
         18,
@@ -238,12 +464,18 @@ def _build_outlet_audit(
 
     compliance_breakdown.append(
         {
-            "factor": "Active RED alerts",
-            "penalty": red_penalty,
+            "factor":
+                "Active RED alerts",
+
+            "penalty":
+                red_penalty,
         }
     )
 
-    # Active medium/high conditions
+    # --------------------------------------------------------
+    # Active ORANGE alerts
+    # --------------------------------------------------------
+
     orange_penalty = min(
         active_orange * 3,
         9,
@@ -253,12 +485,18 @@ def _build_outlet_audit(
 
     compliance_breakdown.append(
         {
-            "factor": "Active ORANGE alerts",
-            "penalty": orange_penalty,
+            "factor":
+                "Active ORANGE alerts",
+
+            "penalty":
+                orange_penalty,
         }
     )
 
+    # --------------------------------------------------------
     # Open investigations
+    # --------------------------------------------------------
+
     investigation_penalty = min(
         unresolved_investigations * 5,
         10,
@@ -268,12 +506,18 @@ def _build_outlet_audit(
 
     compliance_breakdown.append(
         {
-            "factor": "Unresolved investigations",
-            "penalty": investigation_penalty,
+            "factor":
+                "Unresolved investigations",
+
+            "penalty":
+                investigation_penalty,
         }
     )
 
-    # Corrective action problems
+    # --------------------------------------------------------
+    # Corrective actions
+    # --------------------------------------------------------
+
     action_penalty = min(
         action_required * 4,
         8,
@@ -283,18 +527,25 @@ def _build_outlet_audit(
 
     compliance_breakdown.append(
         {
-            "factor": "Corrective actions required",
-            "penalty": action_penalty,
+            "factor":
+                "Corrective actions required",
+
+            "penalty":
+                action_penalty,
         }
     )
 
+    # --------------------------------------------------------
     # IoT availability
+    # --------------------------------------------------------
+
     device_penalty = 0
 
     if devices:
 
         availability = (
-            online_devices / len(devices)
+            online_devices
+            / len(devices)
         )
 
         if availability < 0.50:
@@ -306,19 +557,26 @@ def _build_outlet_audit(
         elif availability < 0.90:
             device_penalty = 4
 
-    elif devices == []:
+    else:
+
         availability = None
 
     compliance_score -= device_penalty
 
     compliance_breakdown.append(
         {
-            "factor": "IoT availability",
-            "penalty": device_penalty,
+            "factor":
+                "IoT availability",
+
+            "penalty":
+                device_penalty,
         }
     )
 
-    # Investigation closure performance
+    # --------------------------------------------------------
+    # Investigation closure
+    # --------------------------------------------------------
+
     closure_penalty = 0
 
     if investigations:
@@ -335,33 +593,92 @@ def _build_outlet_audit(
             closure_penalty = 3
 
     else:
+
         closure_rate = None
 
     compliance_score -= closure_penalty
 
     compliance_breakdown.append(
         {
-            "factor": "Investigation closure performance",
-            "penalty": closure_penalty,
+            "factor":
+                "Investigation closure performance",
+
+            "penalty":
+                closure_penalty,
         }
     )
 
-    # Trend effect is intentionally small.
+    # --------------------------------------------------------
+    # Expiry OCR
+    #
+    # Expired products are treated as a stronger compliance
+    # concern than products expiring today.
+    # --------------------------------------------------------
+
+    expired_penalty = min(
+        expiry["expired"] * 8,
+        16,
+    )
+
+    expires_today_penalty = min(
+        expiry["expires_today"] * 4,
+        8,
+    )
+
+    compliance_score -= expired_penalty
+
+    compliance_score -= expires_today_penalty
+
+    compliance_breakdown.append(
+        {
+            "factor":
+                "Expired-product OCR findings",
+
+            "penalty":
+                expired_penalty,
+        }
+    )
+
+    compliance_breakdown.append(
+        {
+            "factor":
+                "Products expiring today",
+
+            "penalty":
+                expires_today_penalty,
+        }
+    )
+
+    # --------------------------------------------------------
+    # Trend effect
+    # --------------------------------------------------------
+
     trend_penalty = 0
 
     if trend == "DETERIORATING":
+
         trend_penalty = 5
 
     elif trend == "IMPROVING":
+
         compliance_score += 3
 
     compliance_score -= trend_penalty
 
     compliance_breakdown.append(
         {
-            "factor": "Risk trend",
-            "penalty": trend_penalty,
-            "bonus": 3 if trend == "IMPROVING" else 0,
+            "factor":
+                "Risk trend",
+
+            "penalty":
+                trend_penalty,
+
+            "bonus":
+                (
+                    3
+                    if trend == "IMPROVING"
+                    else 0
+                ),
         }
     )
 
@@ -378,13 +695,15 @@ def _build_outlet_audit(
 
     # ========================================================
     # INSPECTION PRIORITY
-    #
-    # Measures urgency for government intervention.
     # ========================================================
 
     priority_score = 0.0
 
     priority_breakdown = []
+
+    # --------------------------------------------------------
+    # RED
+    # --------------------------------------------------------
 
     red_priority = min(
         active_red * 7,
@@ -395,10 +714,17 @@ def _build_outlet_audit(
 
     priority_breakdown.append(
         {
-            "factor": "Active RED alerts",
-            "points": red_priority,
+            "factor":
+                "Active RED alerts",
+
+            "points":
+                red_priority,
         }
     )
+
+    # --------------------------------------------------------
+    # ORANGE
+    # --------------------------------------------------------
 
     orange_priority = min(
         active_orange * 3,
@@ -409,10 +735,17 @@ def _build_outlet_audit(
 
     priority_breakdown.append(
         {
-            "factor": "Active ORANGE alerts",
-            "points": orange_priority,
+            "factor":
+                "Active ORANGE alerts",
+
+            "points":
+                orange_priority,
         }
     )
+
+    # --------------------------------------------------------
+    # Investigations
+    # --------------------------------------------------------
 
     unresolved_priority = min(
         unresolved_investigations * 10,
@@ -423,12 +756,18 @@ def _build_outlet_audit(
 
     priority_breakdown.append(
         {
-            "factor": "Unresolved investigations",
-            "points": unresolved_priority,
+            "factor":
+                "Unresolved investigations",
+
+            "points":
+                unresolved_priority,
         }
     )
 
+    # --------------------------------------------------------
     # Incident volume
+    # --------------------------------------------------------
+
     volume_priority = 0
 
     if len(alerts) >= 15:
@@ -444,26 +783,77 @@ def _build_outlet_audit(
 
     priority_breakdown.append(
         {
-            "factor": "Recent incident volume",
-            "points": volume_priority,
+            "factor":
+                "Recent incident volume",
+
+            "points":
+                volume_priority,
         }
     )
 
-    # Deterioration
+    # --------------------------------------------------------
+    # Expiry OCR priority
+    # --------------------------------------------------------
+
+    expired_priority = min(
+        expiry["expired"] * 10,
+        20,
+    )
+
+    expiring_today_priority = min(
+        expiry["expires_today"] * 5,
+        10,
+    )
+
+    priority_score += expired_priority
+
+    priority_score += (
+        expiring_today_priority
+    )
+
+    priority_breakdown.append(
+        {
+            "factor":
+                "Expired-product OCR findings",
+
+            "points":
+                expired_priority,
+        }
+    )
+
+    priority_breakdown.append(
+        {
+            "factor":
+                "Products expiring today",
+
+            "points":
+                expiring_today_priority,
+        }
+    )
+
+    # --------------------------------------------------------
+    # Risk trend
+    # --------------------------------------------------------
+
     trend_priority = 0
 
     if trend == "DETERIORATING":
+
         trend_priority = 10
 
     elif trend == "STABLE":
+
         trend_priority = 2
 
     priority_score += trend_priority
 
     priority_breakdown.append(
         {
-            "factor": "Risk trend",
-            "points": trend_priority,
+            "factor":
+                "Risk trend",
+
+            "points":
+                trend_priority,
         }
     )
 
@@ -495,63 +885,107 @@ def _build_outlet_audit(
     concerns = []
 
     if not active_red:
+
         strengths.append(
             "No active RED alerts"
         )
 
     if not active_orange:
+
         strengths.append(
             "No active ORANGE alerts"
         )
 
-    if devices and online_devices == len(devices):
+    if devices and (
+        online_devices
+        == len(devices)
+    ):
+
         strengths.append(
             "All registered IoT devices are online"
         )
 
     if closed_alerts and (
-        closed_alerts >= len(alerts) * 0.75
+        closed_alerts
+        >= len(alerts) * 0.75
     ):
+
         strengths.append(
             "Most recent alerts have been resolved"
         )
 
-    if closure_rate is not None and closure_rate >= 0.80:
+    if (
+        closure_rate is not None
+        and closure_rate >= 0.80
+    ):
+
         strengths.append(
             "Strong investigation closure performance"
         )
 
     if trend == "IMPROVING":
+
         strengths.append(
             "Risk pressure is improving"
         )
 
+    if (
+        expiry["total_checks"] > 0
+        and expiry["expired"] == 0
+        and expiry["expires_today"] == 0
+    ):
+
+        strengths.append(
+            "No expired products identified by expiry OCR"
+        )
+
     if active_red:
+
         concerns.append(
             f"{active_red} active RED alert(s)"
         )
 
     if active_orange:
+
         concerns.append(
             f"{active_orange} active ORANGE alert(s)"
         )
 
     if unresolved_investigations:
+
         concerns.append(
             f"{unresolved_investigations} unresolved investigation(s)"
         )
 
     if action_required:
+
         concerns.append(
             f"{action_required} case(s) requiring corrective action"
         )
 
+    if expiry["expired"]:
+
+        concerns.append(
+            f"{expiry['expired']} expired product(s) identified by expiry OCR"
+        )
+
+    if expiry["expires_today"]:
+
+        concerns.append(
+            f"{expiry['expires_today']} product(s) expiring today"
+        )
+
     if trend == "DETERIORATING":
+
         concerns.append(
             "Recent risk pressure is deteriorating"
         )
 
-    if devices and online_devices < len(devices):
+    if devices and (
+        online_devices
+        < len(devices)
+    ):
+
         concerns.append(
             "Some IoT devices are offline"
         )
@@ -594,30 +1028,40 @@ def _build_outlet_audit(
             "Corrective action and follow-up monitoring recommended."
         )
 
+    # ========================================================
+    # RETURN
+    # ========================================================
+
     return {
         "outlet": {
-            "id": restaurant.id,
-            "name": restaurant.name,
+            "id":
+                restaurant.id,
+
+            "name":
+                restaurant.name,
+
             "registration_id":
                 restaurant.registration_id,
+
             "location":
                 restaurant.location,
+
             "state":
                 restaurant.state,
+
             "region":
                 restaurant.region,
         },
 
-        "audit_period_days": days,
+        "audit_period_days":
+            days,
 
-        # Main public compliance result
         "compliance_score":
             compliance_score,
 
         "status":
             compliance_status,
 
-        # Government-only urgency
         "inspection_priority_score":
             priority_score,
 
@@ -630,29 +1074,68 @@ def _build_outlet_audit(
         "metrics": {
             "alerts":
                 len(alerts),
+
             "active_red_alerts":
                 active_red,
+
             "active_orange_alerts":
                 active_orange,
+
             "closed_alerts":
                 closed_alerts,
+
             "investigations":
                 len(investigations),
+
             "unresolved_investigations":
                 unresolved_investigations,
+
             "action_required":
                 action_required,
+
             "devices":
                 len(devices),
+
             "online_devices":
                 online_devices,
+
+            # Expiry OCR metrics
+            "expiry_checks":
+                expiry["total_checks"],
+
+            "expired_products":
+                expiry["expired"],
+
+            "products_expiring_today":
+                expiry["expires_today"],
+
+            "valid_expiry_checks":
+                expiry["valid"],
         },
 
         "trend_metrics": {
             "previous_alert_pressure":
                 previous_pressure,
+
             "recent_alert_pressure":
                 recent_pressure,
+        },
+
+        "expiry_ai": {
+            "checks":
+                expiry["total_checks"],
+
+            "expired":
+                expiry["expired"],
+
+            "expires_today":
+                expiry["expires_today"],
+
+            "valid":
+                expiry["valid"],
+
+            "unknown":
+                expiry["unknown"],
         },
 
         "score_breakdown":
@@ -673,14 +1156,19 @@ def _build_outlet_audit(
         "data_sources": {
             "iot":
                 len(devices) > 0,
+
             "government_alerts":
                 len(alerts) > 0,
+
             "investigations":
                 len(investigations) > 0,
+
             "hygiene_ai":
                 False,
+
             "expiry_ai":
-                False,
+                expiry["total_checks"] > 0,
+
             "citizen_reports":
                 False,
         },
@@ -708,38 +1196,53 @@ def audit_region(
 
     cutoff = (
         datetime.utcnow()
-        - timedelta(days=days)
+        - timedelta(
+            days=days
+        )
     )
 
-    query = db.query(Restaurant)
+    query = db.query(
+        Restaurant
+    )
 
     if state:
+
         query = query.filter(
-            Restaurant.state == state
+            Restaurant.state
+            == state
         )
 
     if region:
+
         query = query.filter(
-            Restaurant.region == region
+            Restaurant.region
+            == region
         )
 
     restaurants = (
         query
-        .order_by(Restaurant.name.asc())
+        .order_by(
+            Restaurant.name.asc()
+        )
         .all()
     )
 
     audits = [
         _build_outlet_audit(
             db=db,
+
             restaurant=restaurant,
+
             cutoff=cutoff,
+
             days=days,
         )
-        for restaurant in restaurants
+
+        for restaurant
+        in restaurants
     ]
 
-    # Lowest compliance first for government attention.
+    # Lowest compliance first.
     audits.sort(
         key=lambda item: (
             {
@@ -751,6 +1254,7 @@ def audit_region(
             }[
                 item["status"]
             ],
+
             -item[
                 "inspection_priority_score"
             ],
@@ -764,7 +1268,8 @@ def audit_region(
         "excellent":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["status"]
                 == "EXCELLENT"
             ),
@@ -772,7 +1277,8 @@ def audit_region(
         "compliant":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["status"]
                 == "COMPLIANT"
             ),
@@ -780,7 +1286,8 @@ def audit_region(
         "watchlist":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["status"]
                 == "WATCHLIST"
             ),
@@ -788,7 +1295,8 @@ def audit_region(
         "warning":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["status"]
                 == "WARNING"
             ),
@@ -796,7 +1304,8 @@ def audit_region(
         "critical":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["status"]
                 == "CRITICAL"
             ),
@@ -804,7 +1313,8 @@ def audit_region(
         "critical_priority":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["inspection_priority"]
                 == "CRITICAL"
             ),
@@ -812,7 +1322,8 @@ def audit_region(
         "high_priority":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["inspection_priority"]
                 == "HIGH"
             ),
@@ -820,7 +1331,8 @@ def audit_region(
         "deteriorating":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["risk_trend"]
                 == "DETERIORATING"
             ),
@@ -828,7 +1340,8 @@ def audit_region(
         "improving":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["risk_trend"]
                 == "IMPROVING"
             ),
@@ -836,9 +1349,48 @@ def audit_region(
         "stable":
             sum(
                 1
-                for item in audits
+                for item
+                in audits
                 if item["risk_trend"]
                 == "STABLE"
+            ),
+
+        # Regional expiry OCR summary
+        "expiry_checks":
+            sum(
+                item["metrics"]["expiry_checks"]
+                for item
+                in audits
+            ),
+
+        "expired_products":
+            sum(
+                item["metrics"]["expired_products"]
+                for item
+                in audits
+            ),
+
+        "products_expiring_today":
+            sum(
+                item[
+                    "metrics"
+                ][
+                    "products_expiring_today"
+                ]
+                for item
+                in audits
+            ),
+
+        "expiry_ai_outlets":
+            sum(
+                1
+                for item
+                in audits
+                if item[
+                    "data_sources"
+                ][
+                    "expiry_ai"
+                ]
             ),
     }
 
@@ -869,8 +1421,11 @@ def audit_region(
                 "MEDIUM": 2,
                 "LOW": 3,
             }[
-                item["inspection_priority"]
+                item[
+                    "inspection_priority"
+                ]
             ],
+
             -item[
                 "inspection_priority_score"
             ],
@@ -887,6 +1442,7 @@ def audit_region(
         "scope": {
             "state":
                 state or "ALL",
+
             "region":
                 region or "ALL",
         },

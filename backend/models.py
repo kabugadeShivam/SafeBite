@@ -175,3 +175,104 @@ class BlockchainRecord(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
     blockchain_tx_id = Column(String(200))
     verification_status = Column(String(30), default="LOCAL_HASH_CHAIN", nullable=False)
+
+class MonthlyAuditNotice(Base):
+    __tablename__ = "monthly_audit_notices"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "restaurant_id",
+            "audit_month",
+            name="uq_monthly_notice_restaurant_month",
+        ),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    restaurant_id = Column(
+        Integer,
+        ForeignKey("restaurants.id"),
+        nullable=False,
+        index=True,
+    )
+
+    audit_month = Column(
+        String(7),
+        nullable=False,
+        index=True,
+    )
+
+    notice_type = Column(
+        String(30),
+        nullable=False,
+    )
+
+    title = Column(
+        String(250),
+        nullable=False,
+    )
+
+    message = Column(
+        Text,
+        nullable=False,
+    )
+
+    compliance_score = Column(
+        Float,
+        nullable=False,
+    )
+
+    compliance_status = Column(
+        String(50),
+        nullable=False,
+    )
+
+    inspection_priority = Column(
+        String(50),
+        nullable=False,
+    )
+
+    risk_trend = Column(
+        String(50),
+        nullable=False,
+    )
+
+    strengths = Column(
+        Text,
+        default="[]",
+        nullable=False,
+    )
+
+    concerns = Column(
+        Text,
+        default="[]",
+        nullable=False,
+    )
+
+    recommendation = Column(
+        Text,
+        default="",
+        nullable=False,
+    )
+
+    delivery_status = Column(
+        String(30),
+        default="IN_SYSTEM",
+        nullable=False,
+    )
+
+    issued_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    generated_by = Column(
+        Integer,
+        ForeignKey("government_officers.id"),
+        nullable=True,
+    )

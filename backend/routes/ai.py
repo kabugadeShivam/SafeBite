@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -64,7 +65,9 @@ def get_current_officer(
     db: Session = Depends(get_db),
 ):
     try:
-        officer_id = int(payload["sub"])
+        officer_id = int(
+            payload["sub"]
+        )
 
     except (
         KeyError,
@@ -128,6 +131,7 @@ def _save_upload(
     }
 
     if extension not in allowed_extensions:
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -142,9 +146,11 @@ def _save_upload(
     )
 
     try:
+
         content = file.file.read()
 
         if not content:
+
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded image is empty",
@@ -158,6 +164,7 @@ def _save_upload(
         raise
 
     except OSError as exc:
+
         raise HTTPException(
             status_code=500,
             detail=(
@@ -234,6 +241,11 @@ def expiry_analysis(
     image_path = _save_upload(file)
 
     try:
+
+        # ----------------------------------------------------
+        # Run existing OCR engine
+        # ----------------------------------------------------
+
         result = analyze_expiry(
             image_path
         )
@@ -246,26 +258,107 @@ def expiry_analysis(
         restaurant_id = None
 
         if investigation:
+
             restaurant_id = (
                 investigation.alert.restaurant_id
             )
 
-        # Store expiry analysis for the outlet.
-        if (
-            result.get("success") is True
-            and restaurant_id is not None
-        ):
+        # ----------------------------------------------------
+        # Determine database detection type.
+        #
+        # The OCR engine returns:
+        #
+        # found
+        # expiry_date
+        # status
+        # days_remaining
+        #
+        # It does NOT return "success".
+        # ----------------------------------------------------
+
+        expiry_status = str(
+            result.get(
+                "status",
+                "NOT_FOUND",
+            )
+        ).upper()
+
+        detection_type_map = {
+            "EXPIRED":
+                "expiry_expired",
+
+            "EXPIRES_TODAY":
+                "expiry_expires_today",
+
+            "VALID":
+                "expiry_valid",
+
+            "NOT_FOUND":
+                "expiry_not_found",
+
+            "IMAGE_NOT_FOUND":
+                "expiry_image_not_found",
+
+            "OCR_ERROR":
+                "expiry_ocr_error",
+        }
+
+        detection_type = (
+            detection_type_map.get(
+                expiry_status,
+                "expiry_unknown",
+            )
+        )
+
+        # ----------------------------------------------------
+        # OCR does not currently provide a confidence score.
+        # Keep confidence NULL rather than inventing one.
+        # ----------------------------------------------------
+
+        confidence = result.get(
+            "confidence"
+        )
+
+        if confidence is not None:
+
+            try:
+                confidence = float(
+                    confidence
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                confidence = None
+
+        # ----------------------------------------------------
+        # Store expiry result when the analysis belongs to
+        # an investigation/outlet.
+        # ----------------------------------------------------
+
+        expiry_detection = None
+
+        if restaurant_id is not None:
+
             expiry_detection = AIDetection(
-                detection_type="expiry_analysis",
-                confidence=float(
-                    result.get(
-                        "confidence",
-                        0,
-                    )
-                ),
-                description=str(result),
+                detection_type=
+                    detection_type,
+
+                confidence=
+                    confidence,
+
+                description=
+                    json.dumps(
+                        result,
+                        default=str,
+                    ),
+
                 image_path=None,
-                restaurant_id=restaurant_id,
+
+                restaurant_id=
+                    restaurant_id,
+
                 device_id=None,
             )
 
@@ -275,29 +368,68 @@ def expiry_analysis(
 
             db.flush()
 
-        # Create audit only for successful AI analysis.
+        # ----------------------------------------------------
+        # Audit every investigation-linked OCR analysis.
+        #
+        # This means even NOT_FOUND is auditable.
+        # ----------------------------------------------------
+
         audit = None
 
-        if (
-            investigation_id is not None
-            and result.get("success") is True
-        ):
+        if investigation_id is not None:
+
             audit = create_audit_record(
                 db=db,
-                record_type="AI_EXPIRY_ANALYSIS",
-                entity_type="INVESTIGATION",
-                entity_id=investigation_id,
-                actor_id=officer.id,
+
+                record_type=
+                    "AI_EXPIRY_ANALYSIS",
+
+                entity_type=
+                    "INVESTIGATION",
+
+                entity_id=
+                    investigation_id,
+
+                actor_id=
+                    officer.id,
+
                 payload={
                     "filename":
                         file.filename,
+
                     "result":
                         result,
+
+                    "stored_detection_type":
+                        detection_type,
+
+                    "restaurant_id":
+                        restaurant_id,
                 },
             )
 
+        # ----------------------------------------------------
+        # Commit database changes.
+        # ----------------------------------------------------
+
+        if (
+            expiry_detection is not None
+            or audit is not None
+        ):
+
             db.commit()
-            db.refresh(audit)
+
+        if expiry_detection is not None:
+
+            db.refresh(
+                expiry_detection
+            )
+
+        if audit is not None:
+
+            db.refresh(
+                audit
+            )
 
         return {
             "service":
@@ -308,6 +440,27 @@ def expiry_analysis(
 
             "result":
                 result,
+
+            "stored_detection": (
+                {
+                    "id":
+                        expiry_detection.id,
+
+                    "detection_type":
+                        expiry_detection.detection_type,
+
+                    "expiry_status":
+                        expiry_status,
+
+                    "confidence":
+                        expiry_detection.confidence,
+
+                    "restaurant_id":
+                        expiry_detection.restaurant_id,
+                }
+                if expiry_detection
+                else None
+            ),
 
             "audit": (
                 {
@@ -329,6 +482,7 @@ def expiry_analysis(
         }
 
     finally:
+
         image_path.unlink(
             missing_ok=True
         )
@@ -350,6 +504,7 @@ def hygiene_analysis(
     image_path = _save_upload(file)
 
     try:
+
         result = analyze_hygiene(
             image_path
         )
@@ -362,6 +517,7 @@ def hygiene_analysis(
         restaurant_id = None
 
         if investigation:
+
             restaurant_id = (
                 investigation.alert.restaurant_id
             )
@@ -410,21 +566,32 @@ def hygiene_analysis(
                 )
 
                 if class_id is not None:
+
                     description += (
                         f" Class ID: {class_id}."
                     )
 
                 if bbox is not None:
+
                     description += (
                         f" Bounding box: {bbox}."
                     )
 
                 ai_detection = AIDetection(
-                    detection_type=label,
-                    confidence=confidence,
-                    description=description,
+                    detection_type=
+                        label,
+
+                    confidence=
+                        confidence,
+
+                    description=
+                        description,
+
                     image_path=None,
-                    restaurant_id=restaurant_id,
+
+                    restaurant_id=
+                        restaurant_id,
+
                     device_id=None,
                 )
 
@@ -436,6 +603,7 @@ def hygiene_analysis(
                     {
                         "label":
                             label,
+
                         "confidence":
                             confidence,
                     }
@@ -456,10 +624,19 @@ def hygiene_analysis(
 
             audit = create_audit_record(
                 db=db,
-                record_type="AI_HYGIENE_ANALYSIS",
-                entity_type="INVESTIGATION",
-                entity_id=investigation_id,
-                actor_id=officer.id,
+
+                record_type=
+                    "AI_HYGIENE_ANALYSIS",
+
+                entity_type=
+                    "INVESTIGATION",
+
+                entity_id=
+                    investigation_id,
+
+                actor_id=
+                    officer.id,
+
                 payload={
                     "filename":
                         file.filename,
@@ -473,7 +650,18 @@ def hygiene_analysis(
             )
 
             db.commit()
-            db.refresh(audit)
+
+            db.refresh(
+                audit
+            )
+
+        else:
+
+            # Persist YOLO detections even when there is
+            # no investigation-linked audit.
+            if stored_findings:
+
+                db.commit()
 
         return {
             "service":
@@ -486,7 +674,9 @@ def hygiene_analysis(
                 result,
 
             "stored_findings":
-                len(stored_findings),
+                len(
+                    stored_findings
+                ),
 
             "audit": (
                 {
@@ -508,6 +698,7 @@ def hygiene_analysis(
         }
 
     finally:
+
         image_path.unlink(
             missing_ok=True
         )

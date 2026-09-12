@@ -10,17 +10,33 @@ from .routes.sensors import router as sensors_router
 from .routes.ai import router as ai_router
 from .routes.auditor import router as auditor_router
 from .routes.public_display import router as public_display_router
+
 from .routes.citizen_reports import (
     public_router as citizen_public_router,
     government_router as citizen_government_router,
+    investigation_router as citizen_investigation_router,
 )
-from .routes.audit_history import router as audit_history_router
+
+from .routes.audit_history import (
+    router as audit_history_router
+)
+
+from .routes.command_center import (
+    router as command_center_router
+)
+
+from .routes.monthly_notices import (
+    router as monthly_notices_router
+)
+
 
 # ============================================================
 # DATABASE INITIALIZATION
 # ============================================================
 
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(
+    bind=engine
+)
 
 
 # ============================================================
@@ -32,7 +48,8 @@ app = FastAPI(
     description=(
         "IoT + AI food-safety monitoring with "
         "regional government alerts, auditable "
-        "investigations, and blockchain-backed audit records."
+        "investigations, citizen evidence, monthly "
+        "audit notices, and blockchain-backed audit records."
     ),
     version="3.0.0",
 )
@@ -44,34 +61,111 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+
+    allow_origin_regex=(
+        r"^https?://"
+        r"(localhost|127\.0\.0\.1)"
+        r"(:\d+)?$"
+    ),
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
+
 
 # ============================================================
 # ROUTERS
 # ============================================================
 
-app.include_router(restaurants_router)
-app.include_router(devices_router)
-app.include_router(sensors_router)
-app.include_router(government_router)
-app.include_router(ai_router)
-app.include_router(auditor_router)
-app.include_router(public_display_router)
-app.include_router(citizen_public_router)
-app.include_router(citizen_government_router)
-app.include_router(audit_history_router)
+app.include_router(
+    restaurants_router
+)
+
+app.include_router(
+    devices_router
+)
+
+app.include_router(
+    sensors_router
+)
+
+app.include_router(
+    government_router
+)
+
+app.include_router(
+    ai_router
+)
+
+app.include_router(
+    auditor_router
+)
+
+app.include_router(
+    public_display_router
+)
+
+# ------------------------------------------------------------
+# Public citizen reporting
+# ------------------------------------------------------------
+
+app.include_router(
+    citizen_public_router
+)
+
+# ------------------------------------------------------------
+# Government citizen reports
+# ------------------------------------------------------------
+
+app.include_router(
+    citizen_government_router
+)
+
+# ------------------------------------------------------------
+# Citizen-report context inside investigations
+# ------------------------------------------------------------
+
+app.include_router(
+    citizen_investigation_router
+)
+
+# ------------------------------------------------------------
+# Outlet audit history
+# ------------------------------------------------------------
+
+app.include_router(
+    audit_history_router
+)
+
+# ------------------------------------------------------------
+# Government Command Center
+# ------------------------------------------------------------
+
+app.include_router(
+    command_center_router
+)
+
+# ------------------------------------------------------------
+# Monthly audit notices
+# ------------------------------------------------------------
+
+app.include_router(
+    monthly_notices_router
+)
 
 
 # ============================================================
 # HEALTH
 # ============================================================
 
-@app.get("/health")
+@app.get(
+    "/health"
+)
 def health():
+
     return {
         "status": "ok",
         "service": "SafeBite API",

@@ -7,9 +7,7 @@ const API_BASE = "http://127.0.0.1:8000";
 
 async function request(path, options = {}) {
   const token =
-    localStorage.getItem(
-      "safebite_token"
-    );
+    localStorage.getItem("safebite_token");
 
   const headers = new Headers(
     options.headers || {}
@@ -22,9 +20,7 @@ async function request(path, options = {}) {
     );
   }
 
-  if (
-    !(options.body instanceof FormData)
-  ) {
+  if (!(options.body instanceof FormData)) {
     headers.set(
       "Content-Type",
       "application/json"
@@ -319,7 +315,7 @@ export const api = {
 
 
   /* ========================================================
-     REGIONAL AI AUDITOR
+     REGIONAL AUDITOR
      ======================================================== */
 
   regionalAudit: (
@@ -346,6 +342,16 @@ export const api = {
       )}?days=${encodeURIComponent(
         days
       )}`
+    ),
+
+
+  /* ========================================================
+     COMMAND CENTER
+     ======================================================== */
+
+  commandCenter: () =>
+    request(
+      "/government/command-center"
     ),
 
 

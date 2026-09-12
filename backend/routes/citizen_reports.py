@@ -48,6 +48,11 @@ government_router = APIRouter(
     tags=["Citizen Reports - Government"],
 )
 
+investigation_router = APIRouter(
+    prefix="/government/investigations",
+    tags=["Investigation Citizen Context"],
+)
+
 
 # ============================================================
 # DIRECTORIES
@@ -138,14 +143,12 @@ def get_current_officer(
     )
 
     if not officer:
-
         raise HTTPException(
             status_code=401,
             detail="Officer not found",
         )
 
     if officer.status.upper() != "ACTIVE":
-
         raise HTTPException(
             status_code=401,
             detail="Officer account is inactive",
@@ -192,7 +195,6 @@ def _save_media(
     )
 
     if extension not in allowed_extensions:
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -205,7 +207,6 @@ def _save_media(
     content = file.file.read()
 
     if not content:
-
         raise HTTPException(
             status_code=400,
             detail="Uploaded media is empty",
@@ -216,7 +217,6 @@ def _save_media(
         in ALLOWED_IMAGE_EXTENSIONS
         and len(content) > MAX_IMAGE_BYTES
     ):
-
         raise HTTPException(
             status_code=413,
             detail="Image exceeds 15 MB limit",
@@ -227,7 +227,6 @@ def _save_media(
         in ALLOWED_VIDEO_EXTENSIONS
         and len(content) > MAX_VIDEO_BYTES
     ):
-
         raise HTTPException(
             status_code=413,
             detail="Video exceeds 50 MB limit",
@@ -254,10 +253,6 @@ def _analyze_citizen_media(
     content_type: str | None,
     extension: str,
 ) -> dict:
-
-    # --------------------------------------------------------
-    # IMAGE ANALYSIS
-    # --------------------------------------------------------
 
     if extension in ALLOWED_IMAGE_EXTENSIONS:
 
@@ -296,8 +291,7 @@ def _analyze_citizen_media(
 
         relevant = [
             detection
-            for detection
-            in detections
+            for detection in detections
             if str(
                 detection.get(
                     "label",
@@ -313,7 +307,6 @@ def _analyze_citizen_media(
         max_confidence = 0.0
 
         if relevant:
-
             max_confidence = max(
                 float(
                     item.get(
@@ -362,11 +355,8 @@ def _analyze_citizen_media(
             in CRITICAL_FINDINGS
             for item in relevant
         ):
-
             severity = "CRITICAL"
-
         else:
-
             severity = "MODERATE"
 
         return {
@@ -400,10 +390,6 @@ def _analyze_citizen_media(
                 ),
         }
 
-    # --------------------------------------------------------
-    # VIDEO
-    # --------------------------------------------------------
-
     return {
         "ai_status":
             "VIDEO_ANALYSIS_PENDING",
@@ -435,31 +421,24 @@ def _create_citizen_alert(
     restaurant: Restaurant,
 ) -> Alert:
 
-    severity = (
-        str(
-            report.ai_severity
-            or "UNKNOWN"
-        )
-        .upper()
-    )
+    severity = str(
+        report.ai_severity
+        or "UNKNOWN"
+    ).upper()
 
     if severity == "CRITICAL":
-
         alert_severity = "RED"
         risk_score = 90.0
 
     elif severity == "MODERATE":
-
         alert_severity = "ORANGE"
         risk_score = 65.0
 
     elif severity == "LOW":
-
         alert_severity = "YELLOW"
         risk_score = 30.0
 
     else:
-
         alert_severity = "ORANGE"
         risk_score = 50.0
 
@@ -473,35 +452,24 @@ def _create_citizen_alert(
 
     alert = Alert(
         alert_type="CITIZEN_REPORT",
-
         severity=alert_severity,
-
         risk_score=risk_score,
-
         reason=reason,
-
         source="CITIZEN",
-
         status="OPEN",
-
         restaurant_id=restaurant.id,
-
         device_id=None,
-
         sensor_reading_id=None,
     )
 
-    db.add(
-        alert
-    )
-
+    db.add(alert)
     db.flush()
 
     return alert
 
 
 # ============================================================
-# CREATE INVESTIGATION FROM CITIZEN REPORT
+# CREATE INVESTIGATION
 # ============================================================
 
 def _create_citizen_investigation(
@@ -521,7 +489,6 @@ def _create_citizen_investigation(
     )
 
     if existing:
-
         return existing
 
     findings = (
@@ -539,19 +506,12 @@ def _create_citizen_investigation(
 
     investigation = Investigation(
         alert_id=alert.id,
-
         officer_id=officer.id,
-
         findings=findings,
-
         action_taken="",
-
         corrective_action="",
-
         status="IN_PROGRESS",
-
         started_at=datetime.utcnow(),
-
     )
 
     db.add(
@@ -574,15 +534,10 @@ def _create_citizen_investigation(
 @public_router.post("/reports")
 def submit_citizen_report(
     registration_id: str = Form(...),
-
     concern_category: str = Form(...),
-
     description: str = Form(""),
-
     is_anonymous: bool = Form(True),
-
     file: UploadFile = File(...),
-
     db: Session = Depends(get_db),
 ):
 
@@ -596,7 +551,6 @@ def submit_citizen_report(
     )
 
     if not restaurant:
-
         raise HTTPException(
             status_code=404,
             detail="Registered outlet not found",
@@ -614,12 +568,12 @@ def submit_citizen_report(
             content
         )
 
-        analysis = _analyze_citizen_media(
-            media_path=media_path,
-
-            content_type=file.content_type,
-
-            extension=media_path.suffix.lower(),
+        analysis = (
+            _analyze_citizen_media(
+                media_path=media_path,
+                content_type=file.content_type,
+                extension=media_path.suffix.lower(),
+            )
         )
 
         report = CitizenReport(
@@ -630,9 +584,8 @@ def submit_citizen_report(
                 [:100]
             ),
 
-            description=(
-                description.strip()
-            ),
+            description=
+                description.strip(),
 
             original_filename=
                 file.filename,
@@ -671,10 +624,7 @@ def submit_citizen_report(
                 analysis["model"],
         )
 
-        db.add(
-            report
-        )
-
+        db.add(report)
         db.flush()
 
         audit = create_audit_record(
@@ -689,8 +639,7 @@ def submit_citizen_report(
             entity_id=
                 report.id,
 
-            actor_id=
-                None,
+            actor_id=None,
 
             payload={
                 "restaurant_id":
@@ -774,7 +723,6 @@ def submit_citizen_report(
     except Exception:
 
         if media_path is not None:
-
             media_path.unlink(
                 missing_ok=True
             )
@@ -791,7 +739,6 @@ def submit_citizen_report(
 )
 def get_citizen_report_status(
     report_id: int,
-
     db: Session = Depends(get_db),
 ):
 
@@ -805,7 +752,6 @@ def get_citizen_report_status(
     )
 
     if not report:
-
         raise HTTPException(
             status_code=404,
             detail="Citizen report not found",
@@ -849,11 +795,12 @@ def get_citizen_report_status(
         "ai_severity":
             report.ai_severity,
 
-        "message": (
-            "Your report has been received. "
-            "Government officers may review the evidence "
-            "and initiate further action."
-        ),
+        "message":
+            (
+                "Your report has been received. "
+                "Government officers may review the evidence "
+                "and initiate further action."
+            ),
     }
 
 
@@ -872,31 +819,17 @@ def list_citizen_reports(
     db: Session = Depends(get_db),
 ):
 
-    query = (
-        db.query(CitizenReport)
-        .join(
-            Restaurant,
-            CitizenReport.restaurant_id
-            == Restaurant.id,
-        )
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # CitizenReport has restaurant_id but no SQLAlchemy
+    # restaurant relationship.
+    #
+    # Therefore we load Restaurant explicitly.
+    # --------------------------------------------------------
+
+    query = db.query(
+        CitizenReport
     )
-
-    # --------------------------------------------------------
-    # Regional restriction
-    # --------------------------------------------------------
-
-    if (
-        officer.role.upper()
-        != "CENTRAL_ADMIN"
-    ):
-
-        query = query.filter(
-            Restaurant.state
-            == officer.state,
-
-            Restaurant.region
-            == officer.region,
-        )
 
     if status:
 
@@ -913,12 +846,59 @@ def list_citizen_reports(
         .all()
     )
 
-    return {
-        "count":
-            len(reports),
+    serialized = []
 
-        "reports": [
+    for report in reports:
 
+        restaurant = (
+            db.query(Restaurant)
+            .filter(
+                Restaurant.id
+                == report.restaurant_id
+            )
+            .first()
+        )
+
+        # ----------------------------------------------------
+        # Region security
+        # ----------------------------------------------------
+
+        if (
+            officer.role.upper()
+            != "CENTRAL_ADMIN"
+        ):
+
+            if not restaurant:
+                continue
+
+            if (
+                restaurant.state.lower()
+                != officer.state.lower()
+                or restaurant.region.lower()
+                != officer.region.lower()
+            ):
+                continue
+
+        # ----------------------------------------------------
+        # Parse AI findings safely
+        # ----------------------------------------------------
+
+        try:
+
+            parsed_findings = json.loads(
+                report.ai_findings
+                or "{}"
+            )
+
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+
+            parsed_findings = {}
+
+        serialized.append(
             {
                 "id":
                     report.id,
@@ -928,13 +908,32 @@ def list_citizen_reports(
                         report.restaurant_id,
 
                     "name":
-                        report.restaurant.name,
+                        (
+                            restaurant.name
+                            if restaurant
+                            else "Unknown outlet"
+                        ),
 
                     "registration_id":
-                        report.restaurant.registration_id,
+                        (
+                            restaurant.registration_id
+                            if restaurant
+                            else None
+                        ),
 
                     "region":
-                        report.restaurant.region,
+                        (
+                            restaurant.region
+                            if restaurant
+                            else None
+                        ),
+
+                    "state":
+                        (
+                            restaurant.state
+                            if restaurant
+                            else None
+                        ),
                 },
 
                 "category":
@@ -943,11 +942,17 @@ def list_citizen_reports(
                 "description":
                     report.description,
 
+                "original_filename":
+                    report.original_filename,
+
                 "submitted_at":
                     report.submitted_at,
 
                 "status":
                     report.status,
+
+                "is_anonymous":
+                    report.is_anonymous,
 
                 "ai": {
                     "status":
@@ -959,20 +964,33 @@ def list_citizen_reports(
                     "severity":
                         report.ai_severity,
 
+                    "model":
+                        report.ai_model,
+
                     "findings":
-                        json.loads(
-                            report.ai_findings
-                            or "{}"
-                        ),
+                        parsed_findings,
                 },
 
                 "media_sha256":
                     report.media_sha256,
+
+                "reviewed_by":
+                    report.reviewed_by,
+
+                "reviewed_at":
+                    report.reviewed_at,
+
+                "review_notes":
+                    report.review_notes,
             }
+        )
 
-            for report in reports
+    return {
+        "count":
+            len(serialized),
 
-        ],
+        "reports":
+            serialized,
     }
 
 
@@ -1057,10 +1075,6 @@ def review_citizen_report(
             detail="Associated outlet not found",
         )
 
-    # --------------------------------------------------------
-    # Regional authorization
-    # --------------------------------------------------------
-
     if (
         officer.role.upper()
         != "CENTRAL_ADMIN"
@@ -1080,39 +1094,15 @@ def review_citizen_report(
                 ),
             )
 
-    # --------------------------------------------------------
-    # Prevent accidental re-verification.
-    # --------------------------------------------------------
-
-    if (
-        report.status == "VERIFIED"
-        and new_status == "VERIFIED"
-    ):
-
-        raise HTTPException(
-            status_code=400,
-            detail="Report is already verified",
-        )
-
-    # ========================================================
-    # UPDATE REPORT STATUS
-    # ========================================================
-
     report.status = new_status
 
     report.reviewed_by = officer.id
 
-    report.reviewed_at = (
-        datetime.utcnow()
-    )
+    report.reviewed_at = datetime.utcnow()
 
     report.review_notes = (
         payload.notes.strip()
     )
-
-    # ========================================================
-    # GOVERNMENT AUDIT OF REVIEW
-    # ========================================================
 
     review_audit = create_audit_record(
         db=db,
@@ -1153,10 +1143,6 @@ def review_citizen_report(
         },
     )
 
-    # ========================================================
-    # AUTOMATIC INVESTIGATION
-    # ========================================================
-
     alert = None
 
     investigation = None
@@ -1167,15 +1153,6 @@ def review_citizen_report(
         new_status
         == "NEEDS_INVESTIGATION"
     ):
-
-        # ----------------------------------------------------
-        # Check whether an investigation was already created
-        # for this citizen report.
-        #
-        # The citizen report itself has no investigation_id,
-        # so we identify its generated alert through the
-        # unique reason prefix.
-        # ----------------------------------------------------
 
         existing_alert = (
             db.query(Alert)
@@ -1234,10 +1211,6 @@ def review_citizen_report(
                 )
             )
 
-            # ------------------------------------------------
-            # Blockchain audit for automatic escalation
-            # ------------------------------------------------
-
             investigation_audit = (
                 create_audit_record(
                     db=db,
@@ -1276,10 +1249,6 @@ def review_citizen_report(
                 )
             )
 
-    # ========================================================
-    # COMMIT
-    # ========================================================
-
     db.commit()
 
     db.refresh(
@@ -1287,13 +1256,11 @@ def review_citizen_report(
     )
 
     if alert:
-
         db.refresh(
             alert
         )
 
     if investigation:
-
         db.refresh(
             investigation
         )
@@ -1332,6 +1299,8 @@ def review_citizen_report(
                 "priority":
                     alert.severity,
 
+                "citizen_report_id":
+                    report.id,
             }
             if investigation and alert
             else None
@@ -1366,7 +1335,7 @@ def review_citizen_report(
 
 
 # ============================================================
-# GOVERNMENT: SECURE MEDIA VIEWER
+# GOVERNMENT: SECURE CITIZEN MEDIA
 # ============================================================
 
 @government_router.get(
@@ -1415,10 +1384,6 @@ def view_citizen_report_media(
             detail="Associated outlet not found",
         )
 
-    # --------------------------------------------------------
-    # Regional authorization
-    # --------------------------------------------------------
-
     if (
         officer.role.upper()
         != "CENTRAL_ADMIN"
@@ -1438,17 +1403,12 @@ def view_citizen_report_media(
                 ),
             )
 
-    # --------------------------------------------------------
-    # Secure path validation
-    # --------------------------------------------------------
-
     media_path = Path(
         report.stored_path
     ).resolve()
 
     upload_root = (
-        CITIZEN_UPLOAD_DIR
-        .resolve()
+        CITIZEN_UPLOAD_DIR.resolve()
     )
 
     try:
@@ -1471,10 +1431,6 @@ def view_citizen_report_media(
             detail="Evidence media not found",
         )
 
-    # --------------------------------------------------------
-    # Safe content type
-    # --------------------------------------------------------
-
     content_type = (
         report.content_type
         or "application/octet-stream"
@@ -1491,7 +1447,10 @@ def view_citizen_report_media(
         "video/x-msvideo",
     }
 
-    if content_type not in allowed_content_types:
+    if (
+        content_type
+        not in allowed_content_types
+    ):
 
         content_type = (
             "application/octet-stream"
@@ -1516,3 +1475,267 @@ def view_citizen_report_media(
                 str(report.id),
         },
     )
+
+
+# ============================================================
+# INVESTIGATION → CITIZEN CONTEXT
+# ============================================================
+
+@investigation_router.get(
+    "/{investigation_id}/citizen-context"
+)
+def get_investigation_citizen_context(
+
+    investigation_id: int,
+
+    officer: GovernmentOfficer = Depends(
+        get_current_officer
+    ),
+
+    db: Session = Depends(get_db),
+):
+
+    investigation = (
+        db.query(Investigation)
+        .filter(
+            Investigation.id
+            == investigation_id
+        )
+        .first()
+    )
+
+    if not investigation:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Investigation not found",
+        )
+
+    alert = investigation.alert
+
+    if not alert:
+
+        return {
+            "linked":
+                False,
+
+            "message":
+                "This investigation has no linked alert.",
+        }
+
+    restaurant = (
+        db.query(Restaurant)
+        .filter(
+            Restaurant.id
+            == alert.restaurant_id
+        )
+        .first()
+    )
+
+    if not restaurant:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Associated outlet not found",
+        )
+
+    if (
+        officer.role.upper()
+        != "CENTRAL_ADMIN"
+    ):
+
+        if (
+            restaurant.state.lower()
+            != officer.state.lower()
+            or restaurant.region.lower()
+            != officer.region.lower()
+        ):
+
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Investigation is outside your "
+                    "authorized region"
+                ),
+            )
+
+    if (
+        str(
+            alert.source
+            or ""
+        ).upper()
+        != "CITIZEN"
+    ):
+
+        return {
+            "linked":
+                False,
+
+            "source":
+                alert.source,
+
+            "message":
+                (
+                    "This investigation did not originate "
+                    "from a citizen report."
+                ),
+        }
+
+    prefix = "Citizen Report #"
+
+    reason = (
+        alert.reason
+        or ""
+    )
+
+    if not reason.startswith(
+        prefix
+    ):
+
+        return {
+            "linked":
+                False,
+
+            "source":
+                "CITIZEN",
+
+            "message":
+                (
+                    "Citizen alert exists but report "
+                    "linkage could not be resolved."
+                ),
+        }
+
+    try:
+
+        number_part = (
+            reason[len(prefix):]
+            .split(":", 1)[0]
+            .strip()
+        )
+
+        report_id = int(
+            number_part
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        return {
+            "linked":
+                False,
+
+            "source":
+                "CITIZEN",
+
+            "message":
+                "Invalid citizen report linkage.",
+        }
+
+    report = (
+        db.query(CitizenReport)
+        .filter(
+            CitizenReport.id
+            == report_id
+        )
+        .first()
+    )
+
+    if not report:
+
+        return {
+            "linked":
+                False,
+
+            "source":
+                "CITIZEN",
+
+            "report_id":
+                report_id,
+
+            "message":
+                "Linked citizen report no longer exists.",
+        }
+
+    try:
+
+        ai_findings = json.loads(
+            report.ai_findings
+            or "{}"
+        )
+
+    except Exception:
+
+        ai_findings = {
+            "raw":
+                report.ai_findings
+        }
+
+    return {
+        "linked":
+            True,
+
+        "investigation_id":
+            investigation.id,
+
+        "alert_id":
+            alert.id,
+
+        "source":
+            "CITIZEN",
+
+        "citizen_report": {
+            "id":
+                report.id,
+
+            "category":
+                report.concern_category,
+
+            "description":
+                report.description,
+
+            "status":
+                report.status,
+
+            "submitted_at":
+                report.submitted_at,
+
+            "is_anonymous":
+                report.is_anonymous,
+        },
+
+        "ai": {
+            "status":
+                report.ai_status,
+
+            "relevance":
+                report.ai_relevance,
+
+            "severity":
+                report.ai_severity,
+
+            "model":
+                report.ai_model,
+
+            "findings":
+                ai_findings,
+        },
+
+        "evidence": {
+            "sha256":
+                report.media_sha256,
+
+            "original_filename":
+                report.original_filename,
+
+            "content_type":
+                report.content_type,
+
+            "available":
+                bool(
+                    report.stored_path
+                ),
+        },
+    }

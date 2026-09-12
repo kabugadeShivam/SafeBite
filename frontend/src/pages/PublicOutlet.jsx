@@ -64,7 +64,38 @@ function formatDate(value) {
     return String(value);
   }
 
-  return date.toLocaleString("en-IN");
+  return date.toLocaleString(
+    "en-IN"
+  );
+}
+
+
+function decisionLabel(decision) {
+  switch (
+    String(
+      decision || ""
+    ).toUpperCase()
+  ) {
+    case "APPROVE":
+      return "VERIFIED";
+
+    case "VERIFIED":
+      return "VERIFIED";
+
+    case "REJECT":
+      return "NOT VERIFIED";
+
+    case "DISMISSED":
+      return "DISMISSED";
+
+    default:
+      return String(
+        decision || "NOT AVAILABLE"
+      ).replaceAll(
+        "_",
+        " "
+      );
+  }
 }
 
 
@@ -73,11 +104,18 @@ function formatDate(value) {
    ============================================================ */
 
 export default function PublicOutlet() {
-  const { registrationId } = useParams();
 
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { registrationId } =
+    useParams();
+
+  const [data, setData] =
+    useState(null);
+
+  const [error, setError] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(true);
 
 
   /* ==========================================================
@@ -85,35 +123,47 @@ export default function PublicOutlet() {
      ========================================================== */
 
   useEffect(() => {
+
     let active = true;
 
     setLoading(true);
     setError("");
     setData(null);
 
-    api.publicOutlet(registrationId)
+    api.publicOutlet(
+      registrationId
+    )
       .then((response) => {
+
         if (active) {
           setData(response);
         }
+
       })
       .catch((err) => {
+
         if (active) {
+
           setError(
             err.message ||
               "Unable to load official outlet information."
           );
+
         }
+
       })
       .finally(() => {
+
         if (active) {
           setLoading(false);
         }
+
       });
 
     return () => {
       active = false;
     };
+
   }, [registrationId]);
 
 
@@ -122,9 +172,12 @@ export default function PublicOutlet() {
      ========================================================== */
 
   if (loading) {
+
     return (
       <div className="public-page">
+
         <div className="public-card public-loading">
+
           <div className="public-logo">
             SB
           </div>
@@ -136,9 +189,12 @@ export default function PublicOutlet() {
           <p>
             Loading official government status...
           </p>
+
         </div>
+
       </div>
     );
+
   }
 
 
@@ -147,8 +203,10 @@ export default function PublicOutlet() {
      ========================================================== */
 
   if (error || !data) {
+
     return (
       <div className="public-page">
+
         <div className="public-card public-error-card">
 
           <div className="public-logo">
@@ -160,17 +218,22 @@ export default function PublicOutlet() {
           </h1>
 
           <p>
-            {error ||
-              "Official outlet information is unavailable."}
+            {
+              error ||
+              "Official outlet information is unavailable."
+            }
           </p>
 
           <small>
-            Please check the registration ID or try again later.
+            Please check the registration ID
+            or try again later.
           </small>
 
         </div>
+
       </div>
     );
+
   }
 
 
@@ -187,13 +250,17 @@ export default function PublicOutlet() {
   const summary =
     data.public_summary || {};
 
-  const score = Number(
-    officialStatus.compliance_score ?? 0
-  );
+
+  const score =
+    Number(
+      officialStatus.compliance_score ?? 0
+    );
+
 
   const status =
     officialStatus.status ||
     "UNKNOWN";
+
 
   const strengths =
     Array.isArray(
@@ -202,12 +269,40 @@ export default function PublicOutlet() {
       ? summary.strengths
       : [];
 
+
   const concerns =
     Array.isArray(
       summary.concerns
     )
       ? summary.concerns
       : [];
+
+
+  /*
+   * The backend may expose the latest verified
+   * investigation under one of these names.
+   *
+   * We only display it when real data exists.
+   */
+
+  const verifiedOutcome =
+    data.latest_verified_outcome ||
+    data.verified_investigation ||
+    data.latest_investigation ||
+    officialStatus.latest_verified_outcome ||
+    null;
+
+
+  const hasVerifiedOutcome =
+    Boolean(
+      verifiedOutcome &&
+      (
+        verifiedOutcome.decision ||
+        verifiedOutcome.status ||
+        verifiedOutcome.verified_at ||
+        verifiedOutcome.remarks
+      )
+    );
 
 
   return (
@@ -226,6 +321,7 @@ export default function PublicOutlet() {
           </div>
 
           <div>
+
             <strong>
               SafeBite
             </strong>
@@ -233,6 +329,7 @@ export default function PublicOutlet() {
             <span>
               Government Food Safety Platform
             </span>
+
           </div>
 
         </div>
@@ -262,8 +359,10 @@ export default function PublicOutlet() {
           </div>
 
           <h1>
-            {outlet.name ||
-              "Registered Food Outlet"}
+            {
+              outlet.name ||
+              "Registered Food Outlet"
+            }
           </h1>
 
           <p className="public-location">
@@ -278,20 +377,30 @@ export default function PublicOutlet() {
           {/* SCORE */}
 
           <div
-            className={statusClass(status)}
+            className={statusClass(
+              status
+            )}
           >
 
             <div className="public-score">
+
               {Math.round(score)}
+
               <span>
                 /100
               </span>
+
             </div>
+
 
             <div>
 
               <strong>
-                {statusLabel(status)}
+                {
+                  statusLabel(
+                    status
+                  )
+                }
               </strong>
 
               <small>
@@ -321,6 +430,139 @@ export default function PublicOutlet() {
 
 
         {/* ====================================================
+            OFFICIAL VERIFICATION OUTCOME
+            ==================================================== */}
+
+        {hasVerifiedOutcome && (
+
+          <section className="public-card">
+
+            <div className="public-eyebrow">
+              OFFICIAL INVESTIGATION OUTCOME
+            </div>
+
+            <h2>
+              Government verification
+            </h2>
+
+            <div
+              className="public-list"
+              style={{
+                marginTop:
+                  "15px",
+              }}
+            >
+
+              {verifiedOutcome.decision && (
+
+                <div>
+
+                  <span>
+                    Decision
+                  </span>
+
+                  <strong>
+                    {
+                      decisionLabel(
+                        verifiedOutcome.decision
+                      )
+                    }
+                  </strong>
+
+                </div>
+
+              )}
+
+
+              {verifiedOutcome.status && (
+
+                <div>
+
+                  <span>
+                    Investigation status
+                  </span>
+
+                  <strong>
+                    {
+                      String(
+                        verifiedOutcome.status
+                      ).replaceAll(
+                        "_",
+                        " "
+                      )
+                    }
+                  </strong>
+
+                </div>
+
+              )}
+
+
+              {verifiedOutcome.verified_at && (
+
+                <div>
+
+                  <span>
+                    Verified at
+                  </span>
+
+                  <strong>
+                    {
+                      formatDate(
+                        verifiedOutcome.verified_at
+                      )
+                    }
+                  </strong>
+
+                </div>
+
+              )}
+
+            </div>
+
+
+            {verifiedOutcome.remarks && (
+
+              <div
+                className="public-government-note"
+                style={{
+                  marginTop:
+                    "15px",
+                }}
+              >
+
+                <strong>
+                  Government remarks
+                </strong>
+
+                <br />
+
+                {
+                  verifiedOutcome.remarks
+                }
+
+              </div>
+
+            )}
+
+            <p
+              className="public-muted"
+              style={{
+                marginTop:
+                  "14px",
+              }}
+            >
+              This outcome reflects an authorised
+              government investigation and is separate
+              from preliminary AI screening.
+            </p>
+
+          </section>
+
+        )}
+
+
+        {/* ====================================================
             SAFETY OVERVIEW + OBSERVATIONS
             ==================================================== */}
 
@@ -337,17 +579,24 @@ export default function PublicOutlet() {
             <div className="public-list">
 
               <div>
+
                 <span>
                   Government status
                 </span>
 
                 <strong>
-                  {statusLabel(status)}
+                  {
+                    statusLabel(
+                      status
+                    )
+                  }
                 </strong>
+
               </div>
 
 
               <div>
+
                 <span>
                   Inspection priority
                 </span>
@@ -358,10 +607,12 @@ export default function PublicOutlet() {
                     "Not available"
                   }
                 </strong>
+
               </div>
 
 
               <div>
+
                 <span>
                   Registration ID
                 </span>
@@ -372,19 +623,24 @@ export default function PublicOutlet() {
                     registrationId
                   }
                 </strong>
+
               </div>
 
 
               <div>
+
                 <span>
                   Last verified
                 </span>
 
                 <strong>
-                  {formatDate(
-                    officialStatus.generated_at
-                  )}
+                  {
+                    formatDate(
+                      officialStatus.generated_at
+                    )
+                  }
                 </strong>
+
               </div>
 
             </div>
@@ -401,11 +657,10 @@ export default function PublicOutlet() {
             </h2>
 
 
-            {/* POSITIVE */}
-
             {strengths.length > 0 && (
 
               <>
+
                 <h3 className="public-subheading positive">
                   Positive findings
                 </h3>
@@ -413,10 +668,15 @@ export default function PublicOutlet() {
                 <ul className="public-bullets">
 
                   {strengths.map(
-                    (item, index) => (
+                    (
+                      item,
+                      index
+                    ) => (
 
                       <li
-                        key={`strength-${index}`}
+                        key={
+                          `strength-${index}`
+                        }
                       >
                         ✓ {item}
                       </li>
@@ -425,16 +685,16 @@ export default function PublicOutlet() {
                   )}
 
                 </ul>
+
               </>
 
             )}
 
 
-            {/* CONCERNS */}
-
             {concerns.length > 0 && (
 
               <>
+
                 <h3 className="public-subheading concern">
                   Areas requiring attention
                 </h3>
@@ -442,10 +702,15 @@ export default function PublicOutlet() {
                 <ul className="public-bullets">
 
                   {concerns.map(
-                    (item, index) => (
+                    (
+                      item,
+                      index
+                    ) => (
 
                       <li
-                        key={`concern-${index}`}
+                        key={
+                          `concern-${index}`
+                        }
                       >
                         ⚠ {item}
                       </li>
@@ -454,6 +719,7 @@ export default function PublicOutlet() {
                   )}
 
                 </ul>
+
               </>
 
             )}
@@ -495,10 +761,6 @@ export default function PublicOutlet() {
 
           </div>
 
-
-          {/* ==================================================
-              CUSTOMER REPORT BUTTON
-              ================================================== */}
 
           <Link
             className="public-report-button"
@@ -558,7 +820,7 @@ export default function PublicOutlet() {
 
 
         {/* ====================================================
-            PUBLIC REPORTING INFORMATION
+            CITIZEN REPORTING
             ==================================================== */}
 
         <section className="public-card">
@@ -580,7 +842,14 @@ export default function PublicOutlet() {
 
           <div
             style={{
-              marginTop: "18px",
+              display:
+                "flex",
+              gap:
+                "10px",
+              flexWrap:
+                "wrap",
+              marginTop:
+                "18px",
             }}
           >
 

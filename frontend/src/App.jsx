@@ -20,6 +20,7 @@ import Establishments from "./pages/Establishments";
 import Login from "./pages/Login";
 import Reports from "./pages/Reports";
 import AuditHistory from "./pages/AuditHistory";
+import CommandCenter from "./pages/CommandCenter";
 
 import PublicOutlet from "./pages/PublicOutlet";
 import PublicCitizenReport from "./pages/PublicCitizenReport";
@@ -183,6 +184,20 @@ function ProtectedLayout() {
           <Link
             className={
               location.pathname.startsWith(
+                "/command-center"
+              )
+                ? "nav-item active"
+                : "nav-item"
+            }
+            to="/command-center"
+          >
+            Command Center
+          </Link>
+
+
+          <Link
+            className={
+              location.pathname.startsWith(
                 "/alerts"
               )
                 ? "nav-item active"
@@ -294,7 +309,7 @@ function ProtectedLayout() {
 
       {/* ======================================================
           MAIN CONTENT
-          ====================================================== */}
+          ====================================================== */
 
       <main className="content">
 
@@ -353,7 +368,7 @@ function ProtectedLayout() {
 
         {/* ====================================================
             GOVERNMENT ROUTES
-            ==================================================== */}
+            ==================================================== */
 
         <Routes>
 
@@ -361,6 +376,13 @@ function ProtectedLayout() {
             path="/"
             element={
               <Dashboard />
+            }
+          />
+
+          <Route
+            path="/command-center"
+            element={
+              <CommandCenter />
             }
           />
 
@@ -444,7 +466,7 @@ export default function App() {
 
       {/* ======================================================
           GOVERNMENT LOGIN
-          ====================================================== */}
+          ====================================================== */
 
       <Route
         path="/login"
@@ -456,7 +478,7 @@ export default function App() {
 
       {/* ======================================================
           PUBLIC OUTLET
-          ====================================================== */}
+          ====================================================== */
 
       <Route
         path="/public/outlet/:registrationId"
@@ -468,7 +490,7 @@ export default function App() {
 
       {/* ======================================================
           PUBLIC CITIZEN REPORT
-          ====================================================== */}
+          ====================================================== */
 
       <Route
         path="/public/outlet/:registrationId/report"
@@ -480,7 +502,7 @@ export default function App() {
 
       {/* ======================================================
           PUBLIC REPORT STATUS
-          ====================================================== */}
+          ====================================================== */
 
       <Route
         path="/public/reports/:reportId"
@@ -492,7 +514,7 @@ export default function App() {
 
       {/* ======================================================
           PROTECTED GOVERNMENT APPLICATION
-          ====================================================== */}
+          ====================================================== */
 
       <Route
         path="/*"

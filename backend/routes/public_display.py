@@ -41,8 +41,9 @@ def public_outlet_status(
             detail="Outlet not found",
         )
 
-    # Use the same verified citizen-aware audit source that feeds
-    # the monthly assessment. This keeps government and public views aligned.
+    # This same official citizen-aware audit source feeds the monthly
+    # assessment. It keeps public and government data grounded in the
+    # same evidence while exposing only public-safe fields below.
     audit = audit_region_with_citizen_intelligence(
         db=db,
         state=outlet.state,
@@ -68,9 +69,6 @@ def public_outlet_status(
             detail="Audit data not available",
         )
 
-    # --------------------------------------------------------
-    # Latest stored monthly AI assessment
-    # --------------------------------------------------------
     monthly_ai = (
         db.query(MonthlyAIAnalysis)
         .filter(
@@ -88,13 +86,8 @@ def public_outlet_status(
         public_status = monthly_ai.public_status
         public_comment = monthly_ai.ai_comment
         public_audit_month = monthly_ai.audit_month
-        public_ai_model = monthly_ai.ai_model
         public_assessment_at = monthly_ai.created_at
-        licence_review_recommended = bool(
-            monthly_ai.licence_review_recommended
-        )
     else:
-        # Before the first monthly run, show the deterministic audit score.
         public_score = float(
             outlet_audit.get("compliance_score", 0)
         )
@@ -108,9 +101,7 @@ def public_outlet_status(
             else "Monthly food-safety assessment is pending."
         )
         public_audit_month = None
-        public_ai_model = "DETERMINISTIC_FALLBACK"
         public_assessment_at = audit.get("generated_at")
-        licence_review_recommended = False
 
     # --------------------------------------------------------
     # Latest verified investigation outcome
@@ -147,6 +138,9 @@ def public_outlet_status(
             ),
         }
 
+    # --------------------------------------------------------
+    # Public response
+    # --------------------------------------------------------
     return {
         "source": "SafeBite Government Platform",
         "outlet": {
@@ -161,14 +155,7 @@ def public_outlet_status(
             "status": public_status,
             "public_comment": public_comment,
             "audit_month": public_audit_month,
-            "ai_model": public_ai_model,
             "assessment_at": public_assessment_at,
-            "licence_review_recommended": licence_review_recommended,
-            "inspection_priority": outlet_audit.get(
-                "inspection_priority"
-            ),
-            "risk_trend": outlet_audit.get("risk_trend"),
-            "generated_at": audit.get("generated_at"),
             "latest_verified_outcome": latest_verified_outcome,
         },
         "public_summary": {
@@ -185,10 +172,6 @@ def public_outlet_status(
                 "score": monthly_ai.score,
                 "status": monthly_ai.public_status,
                 "comment": monthly_ai.ai_comment,
-                "ai_model": monthly_ai.ai_model,
-                "licence_review_recommended": bool(
-                    monthly_ai.licence_review_recommended
-                ),
             }
             if monthly_ai
             else None

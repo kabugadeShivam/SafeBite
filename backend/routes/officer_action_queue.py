@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Alert, GovernmentOfficer, Restaurant
 from ..models_citizen import CitizenReport
-from ..routes.government import enforce_region, get_current_officer
+from ..routes.government import get_current_officer
 
 
 router = APIRouter(
@@ -100,10 +100,11 @@ def officer_action_queue(
     )
 
     for report in reports:
+        report_severity = str(report.ai_severity or "").upper()
         items.append({
             "kind": "CITIZEN_REPORT",
             "id": report.id,
-            "priority": "HIGH" if str(report.ai_severity or "").upper() in {"CRITICAL", "HIGH"} else "MEDIUM",
+            "priority": "HIGH" if report_severity in {"CRITICAL", "HIGH"} else "MEDIUM",
             "action": "PHYSICAL_INSPECTION",
             "alert_type": "CITIZEN_REPORT",
             "severity": report.ai_severity,
@@ -121,24 +122,44 @@ def officer_action_queue(
             },
         })
 
-    priority_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
+    priority_rank = {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "MEDIUM": 2,
+    }
+
+    # Stable two-pass sort: highest priority first, newest first within priority.
     items.sort(
-        key=lambda item: (
-            priority_rank.get(str(item["priority"]).upper(), 3),
-            item["timestamp"] or datetime.min,
+        key=lambda item: item["timestamp"] or datetime.min,
+        reverse=True,
+    )
+    items.sort(
+        key=lambda item: priority_rank.get(
+            str(item["priority"]).upper(),
+            3,
         )
     )
-    items = list(reversed(items))
 
     return {
         "generated_at": datetime.utcnow(),
         "total": len(items),
-        "critical": sum(1 for item in items if item["priority"] == "CRITICAL"),
-        "high": sum(1 for item in items if item["priority"] == "HIGH"),
+        "critical": sum(
+            1
+            for item in items
+            if item["priority"] == "CRITICAL"
+        ),
+        "high": sum(
+            1
+            for item in items
+            if item["priority"] == "HIGH"
+        ),
         "requires_physical_action": sum(
             1
             for item in items
-            if item["action"] in {"PHYSICAL_INSPECTION", "LICENCE_REVIEW"}
+            if item["action"] in {
+                "PHYSICAL_INSPECTION",
+                "LICENCE_REVIEW",
+            }
         ),
         "items": items[:30],
     }

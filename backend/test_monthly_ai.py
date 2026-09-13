@@ -1,11 +1,18 @@
 """Small dependency-free checks for the SafeBite monthly AI rules."""
 
 from services.monthly_ai_analyzer import analyze_monthly_performance
+from services.monthly_notice_service import _compact_current_audit
 
 
 # No GEMINI_API_KEY is required for these checks; the deterministic fallback is used.
 
 def main() -> None:
+    # Regression check: the monthly notice pipeline must pass the official
+    # compliance score under the exact key expected by the AI analyzer.
+    compact = _compact_current_audit({"compliance_score": 52})
+    assert compact["compliance_score"] == 52
+    assert "base_score" not in compact
+
     excellent = analyze_monthly_performance(
         current={"compliance_score": 95, "risk_trend": "IMPROVING"},
         history=[],

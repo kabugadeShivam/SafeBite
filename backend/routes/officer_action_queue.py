@@ -30,6 +30,8 @@ def officer_action_queue(
             Restaurant.region == officer.region,
         )
 
+    # Citizen reports are added below as their own queue items. Their mirrored
+    # Alert rows are excluded so the same incident is not shown twice.
     active_alerts = (
         query
         .filter(
@@ -37,7 +39,8 @@ def officer_action_queue(
                 "OPEN",
                 "UNDER_INVESTIGATION",
                 "ACTION_REQUIRED",
-            ])
+            ]),
+            Alert.alert_type != "CITIZEN_REPORT",
         )
         .order_by(Alert.timestamp.desc())
         .all()
@@ -48,10 +51,14 @@ def officer_action_queue(
     for alert in active_alerts:
         alert_type = str(alert.alert_type or "").upper()
         severity = str(alert.severity or "").upper()
+        alert_status = str(alert.status or "").upper()
 
         if alert_type == "LICENCE_REVIEW_RECOMMENDED":
             action = "LICENCE_REVIEW"
             priority = "CRITICAL"
+        elif alert_status == "UNDER_INVESTIGATION":
+            action = "FOLLOW_UP_INVESTIGATION"
+            priority = "CRITICAL" if severity == "RED" else "HIGH"
         elif severity == "RED":
             action = "PHYSICAL_INSPECTION"
             priority = "CRITICAL"
@@ -108,7 +115,9 @@ def officer_action_queue(
             "action": "PHYSICAL_INSPECTION",
             "alert_type": "CITIZEN_REPORT",
             "severity": report.ai_severity,
-            "risk_score": report.ai_relevance,
+            # Citizen AI relevance is not a 0-100 risk score.
+            "risk_score": None,
+            "ai_relevance": report.ai_relevance,
             "status": report.status,
             "reason": report.description,
             "source": "CITIZEN",
@@ -128,7 +137,7 @@ def officer_action_queue(
         "MEDIUM": 2,
     }
 
-    # Stable two-pass sort: highest priority first, newest first within priority.
+    # Stable two-pass sort: priority first, newest first within priority.
     items.sort(
         key=lambda item: item["timestamp"] or datetime.min,
         reverse=True,
@@ -158,6 +167,7 @@ def officer_action_queue(
             for item in items
             if item["action"] in {
                 "PHYSICAL_INSPECTION",
+                "FOLLOW_UP_INVESTIGATION",
                 "LICENCE_REVIEW",
             }
         ),

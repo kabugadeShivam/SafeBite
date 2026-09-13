@@ -4,7 +4,7 @@ import json
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ai.hygiene.hygiene_detector import analyze_hygiene
@@ -85,21 +85,33 @@ def _authorized_restaurant(
 @router.post("")
 def item_safety_scan(
     file: UploadFile = File(...),
-    restaurant_id: int | None = None,
-    investigation_id: int | None = None,
+    restaurant_id: int | None = Form(None),
+    investigation_id: int | None = Form(None),
     officer: GovernmentOfficer = Depends(get_current_officer),
     db: Session = Depends(get_db),
 ):
     investigation = None
+
     if investigation_id is not None:
-        investigation = db.query(Investigation).filter(Investigation.id == investigation_id).first()
+        investigation = (
+            db.query(Investigation)
+            .filter(Investigation.id == investigation_id)
+            .first()
+        )
+
         if not investigation:
             raise HTTPException(status_code=404, detail="Investigation not found")
+
         restaurant_id = investigation.alert.restaurant_id
 
     restaurant = None
+
     if restaurant_id is not None:
-        restaurant = _authorized_restaurant(db, officer, restaurant_id)
+        restaurant = _authorized_restaurant(
+            db,
+            officer,
+            restaurant_id,
+        )
 
     image_path = _save_image(file)
 
@@ -107,21 +119,44 @@ def item_safety_scan(
         expiry = analyze_expiry(image_path)
         vision = analyze_hygiene(image_path)
 
-        reading = _latest_storage_reading(db, restaurant.id) if restaurant else None
+        reading = (
+            _latest_storage_reading(db, restaurant.id)
+            if restaurant
+            else None
+        )
 
         assessment = assess_item(
             expiry=expiry,
             vision=vision,
-            temperature=reading.temperature if reading else None,
-            humidity=reading.humidity if reading else None,
-            door_open=reading.door_open if reading else None,
+            temperature=(
+                reading.temperature
+                if reading
+                else None
+            ),
+            humidity=(
+                reading.humidity
+                if reading
+                else None
+            ),
+            door_open=(
+                reading.door_open
+                if reading
+                else None
+            ),
         )
 
         stored_detection_id = None
+
         if restaurant:
-            expiry_status = str(expiry.get("status") or "NOT_FOUND").upper()
+            expiry_status = str(
+                expiry.get("status") or "NOT_FOUND"
+            ).upper()
+
             detection = AIDetection(
-                detection_type=f"item_expiry_{expiry_status.lower()}",
+                detection_type=(
+                    "item_expiry_"
+                    + expiry_status.lower()
+                ),
                 confidence=None,
                 description=json.dumps(
                     {
@@ -132,13 +167,19 @@ def item_safety_scan(
                 ),
                 image_path=None,
                 restaurant_id=restaurant.id,
-                device_id=reading.device_id if reading else None,
+                device_id=(
+                    reading.device_id
+                    if reading
+                    else None
+                ),
             )
+
             db.add(detection)
             db.flush()
             stored_detection_id = detection.id
 
         audit = None
+
         if investigation:
             audit = create_audit_record(
                 db=db,
@@ -160,11 +201,15 @@ def item_safety_scan(
 
         return {
             "service": "item_safety",
-            "restaurant": {
-                "id": restaurant.id,
-                "name": restaurant.name,
-                "registration_id": restaurant.registration_id,
-            } if restaurant else None,
+            "restaurant": (
+                {
+                    "id": restaurant.id,
+                    "name": restaurant.name,
+                    "registration_id": restaurant.registration_id,
+                }
+                if restaurant
+                else None
+            ),
             "investigation_id": investigation_id,
             "assessment": assessment,
             "expiry": expiry,
@@ -177,18 +222,38 @@ def item_safety_scan(
             },
             "storage": {
                 "available": reading is not None,
-                "temperature": reading.temperature if reading else None,
-                "humidity": reading.humidity if reading else None,
-                "door_open": reading.door_open if reading else None,
-                "timestamp": reading.timestamp if reading else None,
+                "temperature": (
+                    reading.temperature
+                    if reading
+                    else None
+                ),
+                "humidity": (
+                    reading.humidity
+                    if reading
+                    else None
+                ),
+                "door_open": (
+                    reading.door_open
+                    if reading
+                    else None
+                ),
+                "timestamp": (
+                    reading.timestamp
+                    if reading
+                    else None
+                ),
             },
             "stored_detection_id": stored_detection_id,
-            "audit": {
-                "id": audit.id,
-                "record_hash": audit.record_hash,
-                "blockchain_tx_id": audit.blockchain_tx_id,
-                "verification_status": audit.verification_status,
-            } if audit else None,
+            "audit": (
+                {
+                    "id": audit.id,
+                    "record_hash": audit.record_hash,
+                    "blockchain_tx_id": audit.blockchain_tx_id,
+                    "verification_status": audit.verification_status,
+                }
+                if audit
+                else None
+            ),
         }
     finally:
         image_path.unlink(missing_ok=True)

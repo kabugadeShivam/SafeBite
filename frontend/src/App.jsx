@@ -21,6 +21,7 @@ import Login from "./pages/Login";
 import Reports from "./pages/Reports";
 import AuditHistory from "./pages/AuditHistory";
 import CommandCenter from "./pages/CommandCenter";
+import ActionQueue from "./pages/ActionQueue";
 
 import PublicOutlet from "./pages/PublicOutlet";
 import PublicCitizenReport from "./pages/PublicCitizenReport";
@@ -165,7 +166,7 @@ function ProtectedLayout() {
 
         {/* ====================================================
             NAVIGATION
-            ==================================================== */}
+            ==================================================== */
 
         <nav>
 
@@ -192,6 +193,20 @@ function ProtectedLayout() {
             to="/command-center"
           >
             Command Center
+          </Link>
+
+
+          <Link
+            className={
+              location.pathname.startsWith(
+                "/action-queue"
+              )
+                ? "nav-item active"
+                : "nav-item"
+            }
+            to="/action-queue"
+          >
+            Action Queue
           </Link>
 
 
@@ -269,7 +284,7 @@ function ProtectedLayout() {
 
         {/* ====================================================
             SIDEBAR BOTTOM
-            ==================================================== */}
+            ==================================================== */
 
         <div className="sidebar-bottom">
 
@@ -383,6 +398,13 @@ function ProtectedLayout() {
             path="/command-center"
             element={
               <CommandCenter />
+            }
+          />
+
+          <Route
+            path="/action-queue"
+            element={
+              <ActionQueue />
             }
           />
 

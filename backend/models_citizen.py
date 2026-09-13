@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.orm import relationship
 
 from .database import Base
 
@@ -25,6 +26,10 @@ class CitizenReport(Base):
         nullable=False,
         index=True,
     )
+
+    # Keep a direct outlet relationship so government workflows can
+    # move a citizen report into the same action/audit flow as alerts.
+    restaurant = relationship("Restaurant")
 
     concern_category = Column(
         String(100),

@@ -105,8 +105,13 @@ def get_notice_message(
 def _compact_current_audit(
     item: dict[str, Any],
 ) -> dict[str, Any]:
+    # Keep the key expected by the AI analyzer. The previous version
+    # renamed it to base_score, causing the analyzer to read 0.
     return {
-        "base_score": item.get("compliance_score", 0),
+        "compliance_score": item.get(
+            "compliance_score",
+            0,
+        ),
         "internal_status": item.get("status", "UNKNOWN"),
         "inspection_priority": item.get(
             "inspection_priority",
@@ -274,6 +279,7 @@ def generate_monthly_notices(
         assessment = analyze_monthly_performance(
             current=current_input,
             history=history,
+            audit_month=audit_month,
         )
 
         snapshot = json.dumps(
@@ -496,12 +502,6 @@ def generate_monthly_notices(
 
             if actor_id is not None:
                 notice.generated_by = actor_id
-
-        # ----------------------------------------------------
-        # Deliver exactly once automatically when possible.
-        # Manual regeneration can retry a failed/not-configured
-        # delivery after contact or provider configuration changes.
-        # ----------------------------------------------------
 
         if notice_is_new or notice.delivery_status != "SENT":
             delivery = deliver_monthly_notice(

@@ -1,68 +1,42 @@
 # SafeBite Physical Prototype Hardware
 
-This hardware plan is aligned with the current SafeBite IoT API and database model.
+This hardware plan is aligned with the current SafeBite software workflow.
 
-## Minimum required kit
+## Complete one-outlet prototype kit
 
-| Component | Qty | Purpose | SafeBite field / function |
-|---|---:|---|---|
-| ESP32 DevKit (Wi-Fi) | 1 | IoT controller and network gateway | `device_id` |
-| DHT22 / AM2302 temperature-humidity sensor | 1 | Measure storage temperature and relative humidity | `temperature`, `humidity` |
-| Magnetic reed switch + magnet | 1 | Detect refrigerator/cold-storage door state | `door_open` |
-| 5V USB power supply | 1 | Power the ESP32 continuously | Power |
-| Breadboard or screw-terminal/prototype board | 1 | Mount/connect components during MVP | Wiring |
-| Dupont jumper wires | 1 set | ESP32-to-sensor connections | Wiring |
+| Component | Qty | Purpose |
+|---|---:|---|
+| ESP32 DevKit | 1 | Main IoT controller and Wi-Fi gateway |
+| DHT22 / AM2302 | 1 | Temperature + humidity monitoring |
+| Magnetic reed switch + magnet | 1 | Cold-storage door state |
+| ESP32-CAM + OV2640 | 1 | Visual inspection and image capture |
+| ESP32-CAM-MB programmer | 1 | Program ESP32-CAM |
+| 2.4-inch ILI9341 TFT | 1 | Local item/outlet status display |
+| Active buzzer | 1 | Local warning for high-risk conditions |
+| 5V 2A USB power supply | 1 | Continuous power |
+| Breadboard / prototype PCB | 1 | MVP wiring |
+| Dupont jumper wire set | 1 | Connections |
+| 4.7k-10k resistors | 1 pack | Sensor pull-up / prototyping |
+| USB cables | 2 | ESP32 / ESP32-CAM programming |
+| Enclosure | 1 | Protect electronics |
+| Mounting hardware | 1 set | Sensor/camera installation |
 
-## Recommended physical layout
-
-- Place the ESP32 outside the refrigerator/cold-storage enclosure where Wi-Fi is reliable.
-- Place the DHT22 sensor inside the monitored storage area, away from the heater/compressor outlet and direct water droplets.
-- Mount the reed switch and magnet on the refrigerator/cold-storage door so the digital input changes when the door opens.
-- Keep the ESP32 powered continuously from a stable 5V USB supply.
-
-## Suggested ESP32 pins
-
-- DHT22 data: GPIO 4
-- Reed switch: GPIO 27
-- DHT22 VCC: 3.3V
-- DHT22 GND: GND
-- Reed switch one side: GPIO 27
-- Reed switch other side: GND
-- Use `INPUT_PULLUP` for the reed-switch input.
-
-## Data flow
+## Functional blocks
 
 ```text
-DHT22 + Reed Switch
-        |
-        v
-      ESP32
-        |
-        | Wi-Fi / HTTP JSON
-        v
-POST /sensors/readings
-        |
-        v
-SafeBite Risk Engine
-        |
-        +--> Sensor Reading
-        +--> Environmental Alert
-        +--> Officer Action Queue
+ESP32
+  ├── DHT22 → temperature + humidity
+  ├── Reed switch → door state
+  ├── TFT → local status
+  └── Buzzer → local warning
+
+ESP32-CAM
+  └── Image → SafeBite visual analysis
 ```
 
-## Device identity
+## Current sensor software contract
 
-The current demo already defines this device:
-
-```text
-Device ID:   SB-MGM-ESP32-001
-Outlet:      SB-MGM-001 — MGM College Canteen
-Device type: ESP32
-```
-
-The simulator uses this exact device ID, so the first physical board can replace the simulator without changing the backend contract.
-
-## Payload sent by the real ESP32
+The ESP32 sends:
 
 ```json
 {
@@ -73,9 +47,61 @@ The simulator uses this exact device ID, so the first physical board can replace
 }
 ```
 
+to:
+
+```text
+POST /sensors/readings
+```
+
+The backend stores the reading and can create an environmental alert. The same contract is used by the simulator, so the real ESP32 replaces the simulator without changing the backend API.
+
+## Suggested ESP32 pins
+
+The current starter firmware uses:
+
+- DHT22 data: GPIO 4
+- Reed switch: GPIO 27
+- DHT22 VCC: 3.3V
+- DHT22 GND: GND
+- Reed switch one side: GPIO 27
+- Reed switch other side: GND
+- Reed input: `INPUT_PULLUP`
+
+The TFT display and buzzer are intentionally kept in the prototype wiring plan so their final pins can be assigned after the exact display board is received.
+
+## Camera role
+
+The camera is used for two software paths:
+
+```text
+Product image
+    ├── Expiry OCR
+    └── Visual/hygiene analysis
+```
+
+The government Item Scanner combines these results with the latest outlet storage reading and returns `SAFE`, `CHECK`, or `UNSAFE`.
+
+## SafeBite item check
+
+```text
+Food item
+   ↓
+Camera image
+   ↓
+Expiry OCR + visual analysis
+   ↓
+Latest storage evidence
+   ↓
+Item safety assessment
+   ↓
+SAFE / CHECK / UNSAFE
+```
+
+This is an evidence-based risk assessment, not a laboratory food-safety test. Government officers remain the final authority.
+
 ## Important local-network detail
 
-The laptop's `127.0.0.1` address works for the Python simulator because the simulator runs on the same computer as FastAPI. A physical ESP32 cannot use `127.0.0.1` to reach the laptop. Set the firmware's server URL to the laptop's LAN IP, for example:
+The laptop's `127.0.0.1` address works for the Python simulator because the simulator runs on the same computer as FastAPI. A physical ESP32 cannot use `127.0.0.1` to reach the laptop. Set the firmware server URL to the laptop's LAN IP, for example:
 
 ```text
 http://192.168.1.20:8000/sensors/readings
@@ -85,4 +111,4 @@ The laptop and ESP32 must be on the same reachable network, and Windows Firewall
 
 ## MVP scope
 
-Do not add gas, flame, camera, load-cell, GPS, or other sensors yet. The current SafeBite risk engine is explicitly based on temperature, humidity, and door state. Additional sensors should be introduced only when the backend risk model is extended to use their data.
+Do not add extra environmental sensors unless the SafeBite risk engine is extended to use their readings. The current risk engine is based on temperature, humidity and door state, while the camera is the visual input for expiry and hygiene analysis.

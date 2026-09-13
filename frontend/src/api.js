@@ -315,6 +315,48 @@ export const api = {
 
 
   /* ========================================================
+     ITEM SAFETY
+     ======================================================== */
+
+  itemSafetyScan: (
+    file,
+    restaurantId = null,
+    investigationId = null
+  ) => {
+
+    const form =
+      new FormData();
+
+    form.append(
+      "file",
+      file
+    );
+
+    if (restaurantId !== null) {
+      form.append(
+        "restaurant_id",
+        String(restaurantId)
+      );
+    }
+
+    if (investigationId !== null) {
+      form.append(
+        "investigation_id",
+        String(investigationId)
+      );
+    }
+
+    return request(
+      "/ai/item-safety",
+      {
+        method: "POST",
+        body: form,
+      }
+    );
+  },
+
+
+  /* ========================================================
      REGIONAL AUDITOR
      ======================================================== */
 
@@ -423,10 +465,6 @@ export const api = {
 
   /* ========================================================
      OUTLET OFFICIAL CONTACT
-     ========================================================
-
-     The notification service uses this single contact record
-     as the destination for monthly email/SMS notices.
      ======================================================== */
 
   outletContact: (
@@ -574,7 +612,8 @@ export const api = {
 
   /* ========================================================
      PUBLIC CITIZEN REPORT SUBMISSION
-     ======================================================== */
+     ========================================================
+     */
 
   submitCitizenReport: ({
     registrationId,

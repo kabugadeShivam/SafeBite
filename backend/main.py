@@ -34,6 +34,10 @@ from .routes.outlet_contacts import (
     router as outlet_contacts_router
 )
 
+from .routes.officer_action_queue import (
+    router as officer_action_queue_router
+)
+
 from .services.monthly_scheduler import (
     start_monthly_scheduler,
 )
@@ -172,6 +176,14 @@ app.include_router(
 
 app.include_router(
     outlet_contacts_router
+)
+
+# ------------------------------------------------------------
+# Officer action queue
+# ------------------------------------------------------------
+
+app.include_router(
+    officer_action_queue_router
 )
 
 

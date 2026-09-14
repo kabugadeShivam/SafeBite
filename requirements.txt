@@ -1,1 +1,13 @@
--r backend/requirements.txt
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+bcrypt
+PyJWT
+python-multipart
+requests
+numpy
+opencv-python
+Pillow
+pytesseract
+psycopg[binary]

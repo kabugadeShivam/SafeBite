@@ -1,23 +1,25 @@
 #include <Arduino.h>
-#include <DHT.h>
+#include <DallasTemperature.h>
 #include <HTTPClient.h>
+#include <OneWire.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
 // ============================================================
 // SafeBite ESP32 IoT prototype
 //
-// Current physical sensors:
-//   - DHT22: temperature + humidity
-//   - Magnetic reed switch: refrigerator/cold-storage door state
+// Current physical sensor:
+//   - Waterproof DS18B20: temperature only
+//
+// Optional future sensors:
+//   - DHT22 for humidity
+//   - Magnetic reed switch for refrigerator door state
 //
 // Production demo path:
 //   ESP32 -> HTTPS -> SafeBite Render API -> PostgreSQL -> Dashboard
 // ============================================================
 
-#define DHT_PIN 4
-#define DHT_TYPE DHT22
-#define DOOR_PIN 27
+#define DS18B20_PIN 4
 
 const char *WIFI_SSID = "YOUR_WIFI_NAME";
 const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
@@ -34,14 +36,14 @@ const char *LOCAL_SERVER_URL =
 const char *DEVICE_ID = "SB-MGM-ESP32-001";
 const unsigned long SEND_INTERVAL_MS = 10000;
 
-DHT dht(DHT_PIN, DHT_TYPE);
+OneWire oneWire(DS18B20_PIN);
+DallasTemperature temperatureSensor(&oneWire);
 
 void connectWiFi() {
   Serial.print("Connecting to Wi-Fi");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   unsigned long started = millis();
-
   while (WiFi.status() != WL_CONNECTED && millis() - started < 20000) {
     delay(500);
     Serial.print(".");
@@ -57,7 +59,7 @@ void connectWiFi() {
   }
 }
 
-void sendReading(float temperature, float humidity, bool doorOpen) {
+void sendReading(float temperatureC) {
   if (WiFi.status() != WL_CONNECTED) {
     connectWiFi();
   }
@@ -70,11 +72,13 @@ void sendReading(float temperature, float humidity, bool doorOpen) {
   HTTPClient http;
   int statusCode = -1;
 
+  // Humidity and door state are not measured by the current DS18B20-only
+  // prototype. The API accepts null humidity rather than inventing data.
   String payload = "{";
   payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
-  payload += "\"temperature\":" + String(temperature, 2) + ",";
-  payload += "\"humidity\":" + String(humidity, 2) + ",";
-  payload += "\"door_open\":" + String(doorOpen ? "true" : "false");
+  payload += "\"temperature\":" + String(temperatureC, 2) + ",";
+  payload += "\"humidity\":null,";
+  payload += "\"door_open\":false";
   payload += "}";
 
   if (USE_LOCAL_SERVER) {
@@ -83,8 +87,8 @@ void sendReading(float temperature, float humidity, bool doorOpen) {
       return;
     }
   } else {
-    // Prototype convenience: skip certificate pinning. For a production
-    // deployment, use certificate validation instead of setInsecure().
+    // Prototype convenience. For production, use proper TLS certificate
+    // validation rather than setInsecure().
     WiFiClientSecure secureClient;
     secureClient.setInsecure();
 
@@ -100,6 +104,9 @@ void sendReading(float temperature, float humidity, bool doorOpen) {
   Serial.println("----------------------------------------");
   Serial.print("Endpoint: ");
   Serial.println(USE_LOCAL_SERVER ? LOCAL_SERVER_URL : PRODUCTION_SERVER_URL);
+  Serial.print("Temperature: ");
+  Serial.print(temperatureC, 2);
+  Serial.println(" C");
   Serial.print("Payload: ");
   Serial.println(payload);
   Serial.print("HTTP status: ");
@@ -120,27 +127,20 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  pinMode(DOOR_PIN, INPUT_PULLUP);
-  dht.begin();
-
+  temperatureSensor.begin();
   connectWiFi();
 }
 
 void loop() {
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
+  temperatureSensor.requestTemperatures();
+  float temperatureC = temperatureSensor.getTempCByIndex(0);
 
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("DHT22 read failed; retrying next cycle.");
+  if (temperatureC == DEVICE_DISCONNECTED_C) {
+    Serial.println("DS18B20 read failed; check wiring and 4.7k pull-up.");
     delay(SEND_INTERVAL_MS);
     return;
   }
 
-  // With INPUT_PULLUP, the circuit is LOW when the reed switch is closed.
-  // Adjust this interpretation if the physical mounting/wiring is reversed.
-  bool doorOpen = digitalRead(DOOR_PIN) == HIGH;
-
-  sendReading(temperature, humidity, doorOpen);
-
+  sendReading(temperatureC);
   delay(SEND_INTERVAL_MS);
 }

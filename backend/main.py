@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,6 +22,12 @@ from .routes.officer_action_queue import router as officer_action_queue_router
 from .services.monthly_scheduler import start_monthly_scheduler
 
 Base.metadata.create_all(bind=engine)
+
+# Prototype bootstrap: Render starts from an empty Postgres database, so the
+# registered demo officer, outlet, and ESP32 device are seeded only when the
+# environment flag is explicitly enabled. The seed script is idempotent.
+if os.getenv("SAFEBITE_BOOTSTRAP_DEMO", "false").lower() == "true":
+    from . import seed_demo  # noqa: F401,E402
 
 app = FastAPI(
     title="SafeBite Government Food Safety Platform",

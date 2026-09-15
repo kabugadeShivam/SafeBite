@@ -2,13 +2,17 @@
 #include <DHT.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 // ============================================================
 // SafeBite ESP32 IoT prototype
 //
-// Sensors supported by the current backend contract:
+// Current physical sensors:
 //   - DHT22: temperature + humidity
 //   - Magnetic reed switch: refrigerator/cold-storage door state
+//
+// Production demo path:
+//   ESP32 -> HTTPS -> SafeBite Render API -> PostgreSQL -> Dashboard
 // ============================================================
 
 #define DHT_PIN 4
@@ -18,11 +22,17 @@
 const char *WIFI_SSID = "YOUR_WIFI_NAME";
 const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-// IMPORTANT: use the laptop's LAN IP, not 127.0.0.1.
-const char *SERVER_URL = "http://192.168.1.20:8000/sensors/readings";
-const char *DEVICE_ID = "SB-MGM-ESP32-001";
+// Set USE_LOCAL_SERVER to true only when running FastAPI locally.
+const bool USE_LOCAL_SERVER = false;
 
-const unsigned long SEND_INTERVAL_MS = 5000;
+const char *PRODUCTION_SERVER_URL =
+    "https://safebite-sje5.onrender.com/sensors/readings";
+
+const char *LOCAL_SERVER_URL =
+    "http://192.168.1.20:8000/sensors/readings";
+
+const char *DEVICE_ID = "SB-MGM-ESP32-001";
+const unsigned long SEND_INTERVAL_MS = 10000;
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -58,13 +68,7 @@ void sendReading(float temperature, float humidity, bool doorOpen) {
   }
 
   HTTPClient http;
-
-  if (!http.begin(SERVER_URL)) {
-    Serial.println("Unable to initialise HTTP client.");
-    return;
-  }
-
-  http.addHeader("Content-Type", "application/json");
+  int statusCode = -1;
 
   String payload = "{";
   payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
@@ -73,9 +77,29 @@ void sendReading(float temperature, float humidity, bool doorOpen) {
   payload += "\"door_open\":" + String(doorOpen ? "true" : "false");
   payload += "}";
 
-  int statusCode = http.POST(payload);
+  if (USE_LOCAL_SERVER) {
+    if (!http.begin(LOCAL_SERVER_URL)) {
+      Serial.println("Unable to initialise local HTTP client.");
+      return;
+    }
+  } else {
+    // Prototype convenience: skip certificate pinning. For a production
+    // deployment, use certificate validation instead of setInsecure().
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+
+    if (!http.begin(secureClient, PRODUCTION_SERVER_URL)) {
+      Serial.println("Unable to initialise HTTPS client.");
+      return;
+    }
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  statusCode = http.POST(payload);
 
   Serial.println("----------------------------------------");
+  Serial.print("Endpoint: ");
+  Serial.println(USE_LOCAL_SERVER ? LOCAL_SERVER_URL : PRODUCTION_SERVER_URL);
   Serial.print("Payload: ");
   Serial.println(payload);
   Serial.print("HTTP status: ");
@@ -113,7 +137,7 @@ void loop() {
   }
 
   // With INPUT_PULLUP, the circuit is LOW when the reed switch is closed.
-  // Adjust this interpretation if your physical mounting/wiring is reversed.
+  // Adjust this interpretation if the physical mounting/wiring is reversed.
   bool doorOpen = digitalRead(DOOR_PIN) == HIGH;
 
   sendReading(temperature, humidity, doorOpen);

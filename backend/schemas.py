@@ -12,7 +12,7 @@ class LoginRequest(BaseModel):
 class SensorReadingCreate(BaseModel):
     device_id: str
     temperature: float
-    humidity: float
+    humidity: Optional[float] = None
     door_open: bool = False
 
 

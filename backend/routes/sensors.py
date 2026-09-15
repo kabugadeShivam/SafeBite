@@ -12,7 +12,10 @@ router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
 
 @router.post("/readings")
-def submit_sensor_reading(payload: SensorReadingCreate, db: Session = Depends(get_db)):
+def submit_sensor_reading(
+    payload: SensorReadingCreate,
+    db: Session = Depends(get_db),
+):
     device = db.query(Device).filter(Device.device_id == payload.device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

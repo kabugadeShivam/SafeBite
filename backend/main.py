@@ -2,6 +2,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .database import Base, engine
 from . import models_monthly  # noqa: F401
@@ -22,6 +23,17 @@ from .routes.officer_action_queue import router as officer_action_queue_router
 from .services.monthly_scheduler import start_monthly_scheduler
 
 Base.metadata.create_all(bind=engine)
+
+# PostgreSQL migration for the temperature-only DS18B20 prototype.
+# Humidity is nullable because the DS18B20 does not measure humidity.
+if engine.dialect.name == "postgresql":
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE sensor_readings "
+                "ALTER COLUMN humidity DROP NOT NULL"
+            )
+        )
 
 # Prototype bootstrap: Render starts from an empty Postgres database, so the
 # registered demo officer, outlet, and ESP32 device are seeded only when the

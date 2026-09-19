@@ -53,7 +53,7 @@ class SensorReading(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     temperature = Column(Float, nullable=False)
-    humidity = Column(Float, nullable=False)
+    humidity = Column(Float, nullable=True)
     door_open = Column(Boolean, default=False, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)

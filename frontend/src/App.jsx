@@ -24,6 +24,7 @@ import CommandCenter from "./pages/CommandCenter";
 import ActionQueue from "./pages/ActionQueue";
 import ItemScanner from "./pages/ItemScanner";
 import MonthlyNotices from "./pages/MonthlyNotices";
+import Sensors from "./pages/Sensors";
 
 import PublicOutlet from "./pages/PublicOutlet";
 import PublicCitizenReport from "./pages/PublicCitizenReport";
@@ -83,6 +84,9 @@ function ProtectedLayout() {
           <Link className={isActive("/action-queue") ? "nav-item active" : "nav-item"} to="/action-queue">
             Action Queue
           </Link>
+          <Link className={isActive("/sensors") ? "nav-item active" : "nav-item"} to="/sensors">
+            Sensors
+          </Link>
           <Link className={isActive("/item-scanner") ? "nav-item active" : "nav-item"} to="/item-scanner">
             Item Scanner
           </Link>
@@ -135,6 +139,7 @@ function ProtectedLayout() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/command-center" element={<CommandCenter />} />
           <Route path="/action-queue" element={<ActionQueue />} />
+          <Route path="/sensors" element={<Sensors />} />
           <Route path="/item-scanner" element={<ItemScanner />} />
           <Route path="/monthly-notices" element={<MonthlyNotices />} />
           <Route path="/alerts" element={<Alerts />} />

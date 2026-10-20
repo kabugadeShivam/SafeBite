@@ -30,6 +30,14 @@ import PublicOutlet from "./pages/PublicOutlet";
 import PublicCitizenReport from "./pages/PublicCitizenReport";
 import PublicReportStatus from "./pages/PublicReportStatus";
 
+function NavGroup({ title, children }) {
+  return (
+    <div className="nav-group">
+      <div className="nav-group-title">{title}</div>
+      {children}
+    </div>
+  );
+}
 
 function ProtectedLayout() {
   const [me, setMe] = useState(null);
@@ -46,22 +54,23 @@ function ProtectedLayout() {
       });
   }, [navigate]);
 
-  if (!localStorage.getItem("safebite_token")) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!localStorage.getItem("safebite_token")) return <Navigate to="/login" replace />;
+  if (!me) return <div className="loading-screen">Loading SafeBite...</div>;
 
-  if (!me) {
-    return <div className="loading-screen">Loading SafeBite...</div>;
-  }
+  const isActive = (prefix) =>
+    location.pathname === prefix || location.pathname.startsWith(`${prefix}/`);
+
+  const nav = (path, label) => (
+    <Link className={isActive(path) ? "nav-item active" : "nav-item"} to={path}>
+      {label}
+    </Link>
+  );
 
   const logout = () => {
     localStorage.removeItem("safebite_token");
     localStorage.removeItem("safebite_officer");
     navigate("/login", { replace: true });
   };
-
-  const isActive = (prefix) =>
-    location.pathname === prefix || location.pathname.startsWith(`${prefix}/`);
 
   return (
     <div className="app-shell">
@@ -74,40 +83,26 @@ function ProtectedLayout() {
           </div>
         </div>
 
-        <nav>
-          <Link className={location.pathname === "/" ? "nav-item active" : "nav-item"} to="/">
-            Overview
-          </Link>
-          <Link className={isActive("/command-center") ? "nav-item active" : "nav-item"} to="/command-center">
-            Command Center
-          </Link>
-          <Link className={isActive("/action-queue") ? "nav-item active" : "nav-item"} to="/action-queue">
-            Action Queue
-          </Link>
-          <Link className={isActive("/sensors") ? "nav-item active" : "nav-item"} to="/sensors">
-            Sensors
-          </Link>
-          <Link className={isActive("/item-scanner") ? "nav-item active" : "nav-item"} to="/item-scanner">
-            Item Scanner
-          </Link>
-          <Link className={isActive("/monthly-notices") ? "nav-item active" : "nav-item"} to="/monthly-notices">
-            Monthly Notices
-          </Link>
-          <Link className={isActive("/alerts") ? "nav-item active" : "nav-item"} to="/alerts">
-            Alerts
-          </Link>
-          <Link className={isActive("/investigations") ? "nav-item active" : "nav-item"} to="/investigations">
-            Investigations
-          </Link>
-          <Link className={isActive("/establishments") ? "nav-item active" : "nav-item"} to="/establishments">
-            Establishments
-          </Link>
-          <Link className={isActive("/reports") ? "nav-item active" : "nav-item"} to="/reports">
-            Reports
-          </Link>
-          <Link className={isActive("/audit-history") ? "nav-item active" : "nav-item"} to="/audit-history">
-            Audit History
-          </Link>
+        <nav className="sidebar-nav">
+          <NavGroup title="MONITOR">
+            {nav("/", "Overview")}
+            {nav("/command-center", "Command Center")}
+            {nav("/sensors", "Sensors")}
+          </NavGroup>
+          <NavGroup title="RESPOND">
+            {nav("/action-queue", "Action Queue")}
+            {nav("/alerts", "Alerts")}
+            {nav("/investigations", "Investigations")}
+          </NavGroup>
+          <NavGroup title="COMPLIANCE">
+            {nav("/establishments", "Establishments")}
+            {nav("/item-scanner", "Item Scanner")}
+            {nav("/monthly-notices", "Monthly Notices")}
+          </NavGroup>
+          <NavGroup title="RECORDS">
+            {nav("/reports", "Reports")}
+            {nav("/audit-history", "Audit History")}
+          </NavGroup>
         </nav>
 
         <div className="sidebar-bottom">
@@ -155,7 +150,6 @@ function ProtectedLayout() {
     </div>
   );
 }
-
 
 export default function App() {
   return (

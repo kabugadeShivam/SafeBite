@@ -744,11 +744,8 @@ def start_investigation(
             "Investigation started",
         "investigation_id":
             investigation.id,
-        "status":
-            investigation.status,
-        "audit": serialize_audit_record(
-            audit
-        ),
+        "audit":
+            serialize_audit_record(audit),
     }
 
 
@@ -787,15 +784,7 @@ def update_investigation(
         investigation.alert.restaurant,
     )
 
-    if (
-        investigation.officer_id
-        != officer.id
-        and officer.role.upper()
-        not in {
-            "SUPERVISOR",
-            "CENTRAL_ADMIN",
-        }
-    ):
+    if investigation.officer_id != officer.id:
         raise HTTPException(
             status_code=403,
             detail=(
@@ -916,67 +905,37 @@ def upload_evidence(
         investigation.alert.restaurant,
     )
 
-    if (
-        investigation.officer_id
-        != officer.id
-        and officer.role.upper()
-        not in {
-            "SUPERVISOR",
-            "CENTRAL_ADMIN",
-        }
-    ):
+    if investigation.officer_id != officer.id:
         raise HTTPException(
             status_code=403,
             detail=(
-                "You are not assigned "
-                "to this investigation"
+                "You are not the assigned "
+                "officer for this case"
             ),
         )
 
-    content = file.file.read()
+    original_name = file.filename or "evidence"
+    suffix = Path(original_name).suffix
+    stored_name = f"{uuid.uuid4().hex}{suffix}"
+    stored_path = UPLOAD_DIR / stored_name
 
-    if not content:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file is empty",
-        )
+    sha256 = hashlib.sha256()
 
-    digest = hashlib.sha256(
-        content
-    ).hexdigest()
-
-    original_name = (
-        file.filename
-        or "evidence"
-    )
-
-    safe_name = (
-        f"{uuid.uuid4().hex}_"
-        f"{Path(original_name).name}"
-    )
-
-    stored_path = (
-        UPLOAD_DIR
-        / safe_name
-    )
-
-    stored_path.write_bytes(
-        content
-    )
+    with stored_path.open("wb") as target:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            sha256.update(chunk)
+            target.write(chunk)
 
     evidence = Evidence(
-        investigation_id=
-            investigation.id,
-        original_filename=
-            original_name,
-        stored_path=
-            str(stored_path),
-        content_type=
-            file.content_type,
-        sha256=
-            digest,
-        uploaded_by=
-            officer.id,
+        investigation_id=investigation.id,
+        original_filename=original_name,
+        stored_path=str(stored_path),
+        content_type=file.content_type,
+        sha256=sha256.hexdigest(),
+        uploaded_by=officer.id,
     )
 
     db.add(evidence)
@@ -985,14 +944,14 @@ def upload_evidence(
     audit = create_audit_record(
         db=db,
         record_type="EVIDENCE_UPLOADED",
-        entity_type="INVESTIGATION",
-        entity_id=investigation.id,
+        entity_type="EVIDENCE",
+        entity_id=evidence.id,
         actor_id=officer.id,
         payload={
-            "evidence_id":
-                evidence.id,
+            "investigation_id":
+                investigation.id,
             "filename":
-                evidence.original_filename,
+                original_name,
             "sha256":
                 evidence.sha256,
         },
@@ -1005,10 +964,15 @@ def upload_evidence(
     return {
         "message":
             "Evidence uploaded",
-        "evidence_id":
-            evidence.id,
-        "sha256":
-            evidence.sha256,
+        "evidence": {
+            "id": evidence.id,
+            "filename":
+                evidence.original_filename,
+            "sha256":
+                evidence.sha256,
+            "uploaded_at":
+                evidence.uploaded_at,
+        },
         "audit":
             serialize_audit_record(audit),
     }
@@ -1029,19 +993,6 @@ def verify_investigation(
     ),
     db: Session = Depends(get_db),
 ):
-    if officer.role.upper() not in {
-        "SUPERVISOR",
-        "CENTRAL_ADMIN",
-    }:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Only Supervisor or "
-                "Central Admin can verify "
-                "investigations"
-            ),
-        )
-
     investigation = (
         db.query(Investigation)
         .filter(
@@ -1278,11 +1229,33 @@ def get_investigation(
         investigation.alert.restaurant,
     )
 
+    readings = []
+
+    if investigation.alert.device_id:
+        readings = (
+            db.query(SensorReading)
+            .filter(
+                SensorReading.device_id
+                == investigation.alert.device_id
+            )
+            .order_by(
+                SensorReading.timestamp.desc()
+            )
+            .limit(25)
+            .all()
+        )
+
     return {
-        "id":
+        "investigation_id":
             investigation.id,
         "status":
             investigation.status,
+        "findings":
+            investigation.findings,
+        "action_taken":
+            investigation.action_taken,
+        "corrective_action":
+            investigation.corrective_action,
         "started_at":
             investigation.started_at,
         "submitted_at":
@@ -1291,16 +1264,22 @@ def get_investigation(
             investigation.verified_at,
         "officer":
             investigation.officer.name,
-        "findings":
-            investigation.findings,
-        "action_taken":
-            investigation.action_taken,
-        "corrective_action":
-            investigation.corrective_action,
-        "alert":
-            serialize_alert(
-                investigation.alert
-            ),
+        "alert": serialize_alert(
+            investigation.alert
+        ),
+        "sensor_evidence": [
+            {
+                "temperature":
+                    reading.temperature,
+                "humidity":
+                    reading.humidity,
+                "door_open":
+                    reading.door_open,
+                "timestamp":
+                    reading.timestamp,
+            }
+            for reading in readings
+        ],
         "evidence": [
             {
                 "id":
@@ -1319,13 +1298,13 @@ def get_investigation(
 
 
 # ============================================================
-# INVESTIGATION AUDIT
+# AUDIT
 # ============================================================
 
 @router.get(
     "/investigations/{investigation_id}/audit"
 )
-def get_investigation_audit(
+def investigation_audit(
     investigation_id: int,
     officer: GovernmentOfficer = Depends(
         get_current_officer
@@ -1366,37 +1345,39 @@ def get_investigation_audit(
         .all()
     )
 
-    local_chain_valid, chain_message = (
-        verify_audit_chain(db)
+    local_chain_valid, chain_message = verify_audit_chain(
+        records
     )
 
     blockchain_records = []
 
     for record in records:
-
         blockchain_result = None
 
         if record.blockchain_tx_id:
-            blockchain_result = (
-                verify_blockchain_record(
-                    record
-                )
+            blockchain_result = verify_blockchain_record(
+                record
             )
 
         blockchain_records.append(
             {
-                "id":
-                    record.id,
+                "id": record.id,
                 "record_type":
                     record.record_type,
-                "timestamp":
-                    record.timestamp,
+                "entity_type":
+                    record.entity_type,
+                "entity_id":
+                    record.entity_id,
+                "actor_id":
+                    record.actor_id,
                 "payload_hash":
                     record.payload_hash,
                 "previous_hash":
                     record.previous_hash,
                 "record_hash":
                     record.record_hash,
+                "timestamp":
+                    record.timestamp,
                 "blockchain_tx_id":
                     record.blockchain_tx_id,
                 "verification_status":
@@ -1537,10 +1518,25 @@ def government_devices(
         .all()
     )
 
-    return {
-        "total":
-            len(devices),
-        "devices": [
+    device_rows = []
+
+    for device in devices:
+        readings = (
+            db.query(SensorReading)
+            .filter(
+                SensorReading.device_id
+                == device.id
+            )
+            .order_by(
+                SensorReading.timestamp.desc()
+            )
+            .limit(10)
+            .all()
+        )
+
+        latest = readings[0] if readings else None
+
+        device_rows.append(
             {
                 "id":
                     device.id,
@@ -1554,7 +1550,39 @@ def government_devices(
                     device.last_seen_at,
                 "restaurant":
                     device.restaurant.name,
+                "latest_reading": (
+                    {
+                        "temperature":
+                            latest.temperature,
+                        "humidity":
+                            latest.humidity,
+                        "door_open":
+                            latest.door_open,
+                        "timestamp":
+                            latest.timestamp,
+                    }
+                    if latest
+                    else None
+                ),
+                "recent_readings": [
+                    {
+                        "temperature":
+                            reading.temperature,
+                        "humidity":
+                            reading.humidity,
+                        "door_open":
+                            reading.door_open,
+                        "timestamp":
+                            reading.timestamp,
+                    }
+                    for reading in readings
+                ],
             }
-            for device in devices
-        ],
+        )
+
+    return {
+        "total":
+            len(device_rows),
+        "devices":
+            device_rows,
     }

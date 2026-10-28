@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 
@@ -21,8 +21,7 @@ export default function DashboardNew() {
   const [refreshing, setRefreshing] = useState(false);
   const [sensorDevice, setSensorDevice] = useState(null);
   const [sensorError, setSensorError] = useState("");
-  const [demoAlert, setDemoAlert] = useState(false);
-  const alarmRef = useRef(null);
+  const [demoMode, setDemoMode] = useState("auto");
 
   async function load() {
     setRefreshing(true);
@@ -38,53 +37,16 @@ export default function DashboardNew() {
     }
   }
 
-  function stopAlarmSound() {
-    const alarm = alarmRef.current;
-    if (!alarm) return;
-    window.clearInterval(alarm.timer);
-    try {
-      alarm.oscillator.stop();
-      alarm.context.close();
-    } catch {
-      // The audio context may already be closed.
-    }
-    alarmRef.current = null;
-  }
-
-  function startAlarmSound() {
-    if (alarmRef.current) return;
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return;
-      const context = new AudioContextClass();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "square";
-      oscillator.frequency.value = 880;
-      gain.gain.value = 0.025;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      let high = true;
-      const timer = window.setInterval(() => {
-        high = !high;
-        oscillator.frequency.setTargetAtTime(high ? 880 : 520, context.currentTime, 0.02);
-        gain.gain.setTargetAtTime(high ? 0.08 : 0.015, context.currentTime, 0.02);
-      }, 220);
-      alarmRef.current = { context, oscillator, timer };
-    } catch (err) {
-      console.warn("Browser alarm audio is unavailable", err);
-    }
-  }
-
   function simulateAlert() {
-    setDemoAlert(true);
-    startAlarmSound();
+    setDemoMode("alert");
   }
 
-  function acknowledgeAlert() {
-    setDemoAlert(false);
-    stopAlarmSound();
+  function simulateNormal() {
+    setDemoMode("normal");
+  }
+
+  function resumeLiveMonitoring() {
+    setDemoMode("auto");
   }
 
   useEffect(() => {
@@ -115,7 +77,6 @@ export default function DashboardNew() {
     };
   }, []);
 
-  useEffect(() => () => stopAlarmSound(), []);
 
   if (error) {
     return <div className="page"><div className="error-box">{error}<button className="secondary-button" onClick={load}>Retry</button></div></div>;
@@ -133,7 +94,9 @@ export default function DashboardNew() {
   const sensorThresholdAlert =
     (temperature !== null && Number.isFinite(temperature) && temperature > TEMP_ALERT) ||
     (humidity !== null && Number.isFinite(humidity) && humidity > HUMIDITY_ALERT);
-  const alarmActive = demoAlert || sensorThresholdAlert;
+  const alarmActive = demoMode === "alert" || (demoMode === "auto" && sensorThresholdAlert);
+  const demoAlert = demoMode === "alert";
+  const simulatedNormal = demoMode === "normal";
   const alertReasons = [
     temperature !== null && temperature > TEMP_ALERT ? `Temperature above ${TEMP_ALERT}°C` : "",
     humidity !== null && humidity > HUMIDITY_ALERT ? `Humidity above ${HUMIDITY_ALERT}%` : "",
@@ -199,19 +162,22 @@ export default function DashboardNew() {
             <div className="critical-alert-icon">!</div>
             <div>
               <strong>{demoAlert ? "SIMULATED EMERGENCY — DEMO MODE" : "FOOD SAFETY THRESHOLD BREACHED"}</strong>
-              <p>{demoAlert ? "Operator-triggered alarm simulation is active." : alertReasons.join(" · ")}</p>
+              <p>{demoAlert ? "Operator-triggered visual alarm simulation is active." : alertReasons.join(" · ")}</p>
             </div>
             <span className="critical-alert-pulse">ACTION REQUIRED</span>
           </div>
         )}
 
         <div className="telemetry-actions">
-          <div className="muted telemetry-note">Demo control triggers a flashing dashboard alert and audible browser alarm. The physical ESP32 buzzer/LED continue to follow the firmware thresholds.</div>
-          {demoAlert ? (
-            <button className="alarm-stop-button" onClick={acknowledgeAlert}>Acknowledge / Stop demo alarm</button>
-          ) : (
+          <div className="muted telemetry-note">
+            Demo buttons change the dashboard display only. The physical buzzer and LEDs are controlled by the ESP32 firmware using real sensor thresholds.
+            {simulatedNormal ? " Demo normal mode is overriding the dashboard alert display." : ""}
+          </div>
+          <div className="telemetry-demo-buttons">
             <button className="alarm-trigger-button" onClick={simulateAlert}>⚠ Simulate emergency alert</button>
-          )}
+            <button className="normal-sim-button" onClick={simulateNormal}>✓ Simulate normal condition</button>
+            {demoMode !== "auto" && <button className="secondary-button" onClick={resumeLiveMonitoring}>Resume live alerts</button>}
+          </div>
         </div>
       </section>
 
